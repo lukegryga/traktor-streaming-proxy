@@ -13,6 +13,8 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
 import kotlinx.serialization.json.*
 import org.apache.log4j.BasicConfigurator
+import app.Logging
+import app.SingleInstance
 import app.SourceManager
 import app.TrayUi
 import sources.ISource
@@ -95,6 +97,7 @@ private fun executeSearch(q: String, hasMoreParameter: Boolean): List<TrackRespo
 
 fun main() {
     BasicConfigurator.configure()
+    Logging.configure()
 
     Config.readConfig()
     Runtime.getRuntime().addShutdownHook(object : Thread() {
@@ -118,6 +121,11 @@ fun main() {
         .map { it.trim() }
         .filter { allSources.containsKey(it) }
         .forEach { SourceManager.register(it, allSources.getValue(it)) }
+
+    if (!SingleInstance.acquire()) {
+        println("Another instance is already running; exiting.")
+        return
+    }
 
     if (!TrayUi.install()) {
         println("System tray unavailable; running headless.")

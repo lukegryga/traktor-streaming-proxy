@@ -75,6 +75,14 @@ object TrayUi {
                 refresh()
             }
         })
+        Browser.pendingUrl?.let { url ->
+            add(MenuItem("Re-open Spotify login page").apply {
+                addActionListener { Browser.open(url) }
+            })
+        }
+        add(MenuItem("Open log file").apply {
+            addActionListener { runCatching { java.awt.Desktop.getDesktop().open(Logging.logFile()) } }
+        })
         add(MenuItem("Open app folder").apply {
             addActionListener { runCatching { java.awt.Desktop.getDesktop().open(File(".").absoluteFile) } }
         })

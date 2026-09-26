@@ -47,15 +47,20 @@ object SourceManager {
     }
 
     private fun start(name: String, type: Class<out ISource>) {
-        if (synchronized(statuses) { statuses[name]?.state } == State.READY) return
+        if (synchronized(statuses) { statuses[name]?.state } in setOf(State.READY, State.STARTING)) return
 
         set(SourceStatus(name, State.STARTING))
         try {
             val source = type.getConstructor().newInstance()
             synchronized(sources) { sources.add(source) }
+            println("$name is ready")
             set(SourceStatus(name, State.READY))
         } catch (ex: Throwable) {
             val cause = generateSequence(ex) { it.cause }.last()
+            // Logged as well as shown in the tray: a tooltip cannot carry a stack trace, and an
+            // interactive login has plenty of ways to fail that need one to diagnose.
+            System.err.println("$name failed to initialise")
+            cause.printStackTrace()
             set(SourceStatus(name, State.FAILED, cause.message ?: cause::class.java.simpleName))
         }
     }
