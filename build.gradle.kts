@@ -25,22 +25,20 @@ dependencies {
     implementation("io.ktor:ktor-network-tls-certificates:$ktor_version")
     implementation("org.slf4j:slf4j-log4j12:2.0.6")
 
-    implementation("com.github.teamnewpipe.NewPipeExtractor:extractor:v0.24.8")
+    // protobuf-javalite ships the same com.google.protobuf.* classes as protobuf-java but without
+    // descriptor support, and the two cannot coexist: whichever lands first on the classpath wins.
+    // When the lite one does, librespot dies with NoSuchMethodError on AnyProto.getDescriptor().
+    // The full runtime is a superset, so it serves both.
+    implementation("com.github.teamnewpipe.NewPipeExtractor:extractor:v0.24.8") {
+        exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+    }
+    implementation("com.google.protobuf:protobuf-java:4.31.1")
     implementation("com.github.librespot-org.librespot-java:librespot-lib:52a8c24215")
     implementation("com.github.0xf4b1:spotify-kt:275f290e64")
     implementation("com.github.0xf4b1:tidal-kt:v0.3.1")
 
     testImplementation(kotlin("test"))
     implementation(kotlin("stdlib-jdk8"))
-}
-
-// librespot's protobuf classes are generated against 3.25.x. Another dependency pulls a newer
-// protobuf-java, and Gradle's highest-wins resolution then breaks descriptor initialisation
-// with NoSuchMethodError on AnyProto.getDescriptor() as soon as a track is loaded.
-configurations.all {
-    resolutionStrategy {
-        force("com.google.protobuf:protobuf-java:3.25.2")
-    }
 }
 
 tasks.test {
