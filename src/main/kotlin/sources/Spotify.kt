@@ -8,6 +8,8 @@ import xyz.gianlu.librespot.core.Session
 import xyz.gianlu.librespot.metadata.TrackId
 import java.io.File
 
+private const val RATE_LIMIT_RETRIES = 4
+
 class Spotify : ISource {
 
     private val _api = SpotifyApi()
@@ -28,36 +30,36 @@ class Spotify : ISource {
     }
 
     override fun getGenre(): List<Track> {
-        val res = api.getUsersSavedTracks(true).toMutableList()
+        val res = retryOnRateLimit { api.getUsersSavedTracks(true) }.toMutableList()
         do {
-            val next = api.getUsersSavedTracks(false)
+            val next = retryOnRateLimit { api.getUsersSavedTracks(false) }
             res.addAll(next)
         } while (next.isNotEmpty())
         return mapTracks(res)
     }
 
     override fun getCuratedPlaylists(reset: Boolean): List<Playlist> {
-        return mapPlaylists(api.getArtists(reset))
+        return mapPlaylists(retryOnRateLimit { api.getArtists(reset) })
     }
 
     override fun getCuratedPlaylist(id: String): List<Track> {
-        return getAllTracks(playlistIds[id.toInt()], api::getArtist)
+        return getAllTracks(playlistIds[id.toInt()]) { i, refresh -> api.getArtist(i, refresh) }
     }
 
     override fun getPlaylists(): List<Playlist> {
-        return mapPlaylists(api.getUsersPlaylists(true))
+        return mapPlaylists(retryOnRateLimit { api.getUsersPlaylists(true) })
     }
 
     override fun getPlaylist(id: String): List<Track> {
-        return getAllTracks(playlistIds[id.toInt()], api::getPlaylist)
+        return getAllTracks(playlistIds[id.toInt()]) { i, refresh -> api.getPlaylist(i, refresh) }
     }
 
     override fun getTop100(): List<Track> {
-        for (category in api.getBrowseCategories(true)) {
+        for (category in retryOnRateLimit { api.getBrowseCategories(true) }) {
             if (category.name == "New Releases") {
-                for (playlist in api.getCategoryPlaylists(category.id, true)) {
+                for (playlist in retryOnRateLimit { api.getCategoryPlaylists(category.id, true) }) {
                     if (playlist.title == "Release Radar") {
-                        return getAllTracks(playlist.id, api::getPlaylist)
+                        return getAllTracks(playlist.id) { i, refresh -> api.getPlaylist(i, refresh) }
                     }
                 }
             }
@@ -66,7 +68,7 @@ class Spotify : ISource {
     }
 
     override fun query(query: String, reset: Boolean): List<Track> {
-        return mapTracks(api.query(query, reset))
+        return mapTracks(retryOnRateLimit { api.query(query, reset) })
     }
 
     override fun download(id: String): ByteArray {
@@ -96,12 +98,29 @@ class Spotify : ISource {
     }
 
     private fun getAllTracks(id: String, func: (id: String, refresh: Boolean) -> List<io.github.tiefensuche.spotify.api.Track>): List<Track> {
-        val res = func(id, true).toMutableList()
+        val res = retryOnRateLimit { func(id, true) }.toMutableList()
         do {
-            val next = func(id, false)
+            val next = retryOnRateLimit { func(id, false) }
             res.addAll(next)
         } while (next.isNotEmpty())
         return mapTracks(res)
+    }
+
+    /**
+     * Draining a whole library pages in a tight loop, which trips Spotify's rolling
+     * request window; a 429 there is transient and clears within tens of seconds.
+     */
+    private fun <T> retryOnRateLimit(block: () -> T): T {
+        var attempt = 0
+        while (true) {
+            try {
+                return block()
+            } catch (ex: SpotifyApi.HttpException) {
+                if (ex.code != 429 || attempt == RATE_LIMIT_RETRIES) throw ex
+                Thread.sleep(1000L shl attempt)
+                attempt++
+            }
+        }
     }
 
     private fun mapTracks(tracks: List<io.github.tiefensuche.spotify.api.Track>): List<Track> {
