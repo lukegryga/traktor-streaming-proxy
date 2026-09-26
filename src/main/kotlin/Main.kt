@@ -108,6 +108,15 @@ fun main() {
         }
     })
 
+    // Checked before the sources start, otherwise an interactive source login such as
+    // Spotify's completes only to have the server die on the missing keystore afterwards.
+    val useKeystore = prop.getProperty("server.useKeystore", "false").toBoolean()
+    val keystoreFile = File("cert/keystore.jks")
+    if (useKeystore && !keystoreFile.exists()) {
+        System.err.println("server.useKeystore is enabled but ${keystoreFile.absolutePath} does not exist. Run cert/gen-cert.sh and rebuild.")
+        return
+    }
+
     prop.getProperty("sources.enabled", "").split(",").map { name -> allSources[name] }.forEach {
         if (it != null)
             register(it)
@@ -116,11 +125,11 @@ fun main() {
     val alias = "foo"
     var serverConfiguration: NettyApplicationEngine.Configuration.() -> Unit
 
-    if(prop.getProperty("server.useKeystore", "false").toBoolean()) {
+    if (useKeystore) {
         val keystorePassword = "changeit"
 
         val keyStore = KeyStore.getInstance("JKS").apply {
-            File("cert/keystore.jks").inputStream().use {
+            keystoreFile.inputStream().use {
                 load(it, keystorePassword.toCharArray())
             }
         }
