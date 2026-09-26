@@ -1,6 +1,7 @@
 package sources
 
 import Config.prop
+import app.Browser
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -80,8 +81,8 @@ class SpotifyWebAuth {
         server.start()
 
         try {
-            println(
-                "Spotify: visit in your browser and log in: $AUTHORIZE_URL?response_type=code" +
+            Browser.open(
+                "$AUTHORIZE_URL?response_type=code" +
                     "&client_id=${enc(clientId)}&redirect_uri=${enc(REDIRECT_URI)}" +
                     "&code_challenge_method=S256&code_challenge=$challenge&scope=${enc(SCOPES)}"
             )

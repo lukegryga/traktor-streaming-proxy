@@ -13,6 +13,8 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
 import kotlinx.serialization.json.*
 import org.apache.log4j.BasicConfigurator
+import app.SourceManager
+import app.TrayUi
 import sources.ISource
 import sources.Spotify
 import sources.Tidal
@@ -25,7 +27,6 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.min
 
-val sources: ArrayList<ISource> = ArrayList()
 val trackIdToSource: HashMap<String, Int> = HashMap()
 val traktorIdToTrackId: HashMap<Long, String> = HashMap()
 
@@ -53,13 +54,7 @@ object Config {
     }
 }
 
-fun register(source: Class<out ISource>) {
-    try {
-        sources.add(source.getConstructor().newInstance())
-    } catch (ex: Exception) {
-        println("Can not instantiate $source: ${ex.printStackTrace()}")
-    }
-}
+val sources: MutableList<ISource> get() = SourceManager.sources
 
 fun processTracks(id: Int, tracks: List<Track>): List<TrackResponse> {
     return tracks.map { track ->
@@ -110,6 +105,7 @@ fun main() {
 
     // Checked before the sources start, otherwise an interactive source login such as
     // Spotify's completes only to have the server die on the missing keystore afterwards.
+    val serverPort = prop.getProperty("server.port", "443").toInt()
     val useKeystore = prop.getProperty("server.useKeystore", "false").toBoolean()
     val keystoreFile = File("cert/keystore.jks")
     if (useKeystore && !keystoreFile.exists()) {
@@ -117,10 +113,18 @@ fun main() {
         return
     }
 
-    prop.getProperty("sources.enabled", "").split(",").map { name -> allSources[name] }.forEach {
-        if (it != null)
-            register(it)
+    prop.getProperty("sources.enabled", "")
+        .split(",")
+        .map { it.trim() }
+        .filter { allSources.containsKey(it) }
+        .forEach { SourceManager.register(it, allSources.getValue(it)) }
+
+    if (!TrayUi.install()) {
+        println("System tray unavailable; running headless.")
     }
+    // Deliberately after the tray is up and not awaited: a source may block on an interactive
+    // login, and the server has to be listening for Traktor to link at all.
+    SourceManager.startAll()
 
     val alias = "foo"
     var serverConfiguration: NettyApplicationEngine.Configuration.() -> Unit
@@ -140,7 +144,7 @@ fun main() {
                 { keystorePassword.toCharArray() },
                 { keystorePassword.toCharArray() }
             ) {
-                port = 8443
+                port = serverPort
             }
         }
     } else {
@@ -151,7 +155,7 @@ fun main() {
                     domains = listOf("api.beatport.com")
                 }
             }, alias, { "".toCharArray() }, { alias.toCharArray() }) {
-                port = 8443
+                port = serverPort
             }
         }
     }

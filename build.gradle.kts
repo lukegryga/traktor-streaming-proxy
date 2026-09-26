@@ -61,3 +61,13 @@ java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
 }
+
+// The generated .bat lists every jar inline, which overruns cmd.exe's 8191 character command
+// line and fails with "The input line is too long." A wildcard classpath stays short.
+tasks.named<org.gradle.jvm.application.tasks.CreateStartScripts>("startScripts") {
+    doLast {
+        windowsScript.writeText(
+            windowsScript.readText().replace(Regex("set CLASSPATH=.*")) { """set CLASSPATH=%APP_HOME%\lib\*""" }
+        )
+    }
+}

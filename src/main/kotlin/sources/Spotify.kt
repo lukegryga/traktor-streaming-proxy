@@ -1,5 +1,6 @@
 package sources
 
+import app.Browser
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
 import kotlinx.serialization.json.Json
@@ -13,12 +14,17 @@ import kotlinx.serialization.json.long
 import java.io.IOException
 import xyz.gianlu.librespot.audio.decoders.AudioQuality
 import xyz.gianlu.librespot.audio.decoders.VorbisOnlyAudioQuality
+import xyz.gianlu.librespot.core.OAuth
 import xyz.gianlu.librespot.core.Session
 import xyz.gianlu.librespot.metadata.TrackId
 import java.io.File
 import java.net.URLEncoder
 
 private const val RATE_LIMIT_RETRIES = 4
+
+// Spotify's own desktop client id, hardcoded in librespot; its OAuth redirect is fixed to this port.
+private const val KEYMASTER_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd"
+private const val LIBRESPOT_REDIRECT_URI = "http://127.0.0.1:5588/login"
 
 class Spotify : ISource {
 
@@ -111,8 +117,6 @@ class Spotify : ISource {
     }
 
     private fun createSession() {
-        // Kept outside the working directory root so it can be bind-mounted in Docker
-        // without shadowing the application files.
         val credentialsFile = File("data/credentials.json")
         credentialsFile.parentFile?.mkdirs()
 
@@ -122,7 +126,18 @@ class Spotify : ISource {
             .setStoredCredentialsFile(credentialsFile)
             .build()
 
-        session = Session.Builder(conf).oauth().create()
+        if (credentialsFile.exists()) {
+            session = Session.Builder(conf).stored().create()
+            return
+        }
+
+        // Session.Builder.oauth() only logs the URL, so the flow is driven here instead to get
+        // the browser opened for the user. Credentials are stored by create() either way.
+        OAuth(KEYMASTER_CLIENT_ID, LIBRESPOT_REDIRECT_URI).use { oauth ->
+            Browser.open(oauth.authUrl)
+            val credentials = oauth.flow()
+            session = Session.Builder(conf).credentials(credentials).create()
+        }
     }
 
     private fun getAllTracks(id: String, func: (id: String, refresh: Boolean) -> List<io.github.tiefensuche.spotify.api.Track>): List<Track> {
