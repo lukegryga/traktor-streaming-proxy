@@ -12,10 +12,11 @@ private const val RATE_LIMIT_RETRIES = 4
 
 class Spotify : ISource {
 
+    private val webAuth = SpotifyWebAuth()
     private val _api = SpotifyApi()
     private val api: SpotifyApi
         get() {
-            _api.token = token()
+            _api.token = webAuth.token()
             return _api
         }
 
@@ -27,6 +28,8 @@ class Spotify : ISource {
 
     init {
         createSession()
+        // Done at startup so both browser logins happen together rather than on a later request.
+        webAuth.token()
     }
 
     override fun getGenre(): List<Track> {
@@ -89,12 +92,6 @@ class Spotify : ISource {
             .build()
 
         session = Session.Builder(conf).oauth().create()
-    }
-
-    private fun token(): String {
-        session?.let {
-            return "Bearer " + it.tokens().getToken().accessToken
-        } ?: throw Exception("No session!")
     }
 
     private fun getAllTracks(id: String, func: (id: String, refresh: Boolean) -> List<io.github.tiefensuche.spotify.api.Track>): List<Track> {

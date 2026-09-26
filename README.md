@@ -108,9 +108,9 @@ Huge thanks to [@v1nc](https://github.com/v1nc) for providing a working setup fo
 8. Create and start Docker image:
 ```
 docker build -t traktor-streaming-proxy .
-docker run -d --name traktor-streaming-proxy-container -p 443:8443 -p 127.0.0.1:5588:5588 -v traktor-spotify-credentials:/app/data --restart always traktor-streaming-proxy
+docker run -d --name traktor-streaming-proxy-container -p 443:8443 -p 127.0.0.1:5588:5588 -p 127.0.0.1:5589:5589 -v traktor-spotify-credentials:/app/data --restart always traktor-streaming-proxy
 ```
-Port `5588` and the `/app/data` volume are only needed for the Spotify source, see [Spotify](#spotify). Leave them out if you do not use it.
+Ports `5588`/`5589` and the `/app/data` volume are only needed for the Spotify source, see [Spotify](#spotify). Leave them out if you do not use it.
 9. Make your system use the proxy by appending the following line to your `C:\Windows\System32\drivers\etc\hosts` file:
 ```
 127.0.0.1   api.beatport.com
@@ -139,35 +139,53 @@ This issue is related to the used codec in the downloaded audio file. We are cur
 
 ### Spotify
 
-Spotify no longer accepts username/password logins, so the source authenticates through OAuth in the browser instead. No Spotify credentials go into `config.properties`. Older versions of this project used `spotify.username` and `spotify.password`; those settings are gone and will now fail with `SpotifyAuthenticationException: BadCredentials`, so make sure you are running a current build.
+Spotify no longer accepts username/password logins, so the source authenticates in the browser instead. No Spotify password goes into `config.properties`. Older versions used `spotify.username` and `spotify.password`; those settings are gone and now fail with `SpotifyAuthenticationException: BadCredentials`.
 
-Add `spotify` to `sources.enabled`, then start the server. The first start blocks until you have completed the login, so do this before launching Traktor. The log prints a link:
+#### Register your own app
+
+This step is required. The source makes two different kinds of call:
+
+- **Audio streaming** goes through librespot's own protocol, using the client id built into that library.
+- **Metadata** (playlists, saved tracks, followed artists, search) goes to `api.spotify.com`.
+
+Spotify meters Web API quota per client id, and librespot's built-in id is shared by every user of that library, so metadata calls made with it are rate limited no matter how little you ask for. The symptom is `429 API rate limit exceeded` on a single cold request, and in Traktor, *could not retrieve content*. Using your own app id gives you a quota that is actually yours.
+
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). It is free and needs no review.
+2. Add exactly this redirect URI: `http://127.0.0.1:5589/callback`
+3. Copy the client id into `config.properties` as `spotify.clientId`. There is no client secret to store; the flow uses PKCE.
+
+#### First start
+
+Add `spotify` to `sources.enabled` and start the server. Startup blocks until both logins are done, so complete them before launching Traktor. The log prints two links, one after the other:
 
 ```
-OAuth: Visit in your browser and log in: https://accounts.spotify.com/authorize?...
+OAuth: Visit in your browser and log in: https://accounts.spotify.com/authorize?...   <- librespot, audio
+Spotify: visit in your browser and log in: https://accounts.spotify.com/authorize?... <- your app, metadata
 ```
 
-With Docker, read it using:
+With Docker, read them using:
 
 ```
 docker logs traktor-streaming-proxy-container
 ```
 
-Open the link, log in to Spotify, and approve the access request. You are redirected to `http://127.0.0.1:5588/login`, which completes the flow and lets the server finish starting.
+Open each link, log in, and approve. They redirect to `http://127.0.0.1:5588/login` and `http://127.0.0.1:5589/callback` respectively.
 
-The resulting token is written to `data/credentials.json` and reused on every later start, so the browser login is a one-time step. In Docker that file lives on the `traktor-spotify-credentials` volume; keep the volume across rebuilds to avoid logging in again. Treat it like a password: it grants access to your Spotify account. To force a fresh login, delete the file:
+#### Afterwards
+
+Both logins are one-time. librespot's reusable credentials land in `data/credentials.json` and the Web API refresh token in `data/spotify-refresh-token`, which is why the `/app/data` volume matters — keep it across rebuilds and you never log in again. Treat both files as passwords; they grant access to your account. To force a fresh login:
 
 ```
-docker run --rm -v traktor-spotify-credentials:/data ubuntu:jammy rm -f /data/credentials.json
+docker run --rm -v traktor-spotify-credentials:/data ubuntu:jammy sh -c "rm -f /data/credentials.json /data/spotify-refresh-token"
 ```
 
-Verify that the source came up without revealing anything sensitive:
+Verify without exposing anything sensitive:
 
 ```
 curl -k https://api.beatport.com/v4/catalog/genres/
 ```
 
-`Spotify` should be listed among the genres. The log shows `Authenticated as <username>!` and no `Can not instantiate class sources.Spotify` line.
+`Spotify` should be listed among the genres, and the log should show `Authenticated as <username>!` with no `Can not instantiate class sources.Spotify` line.
 
 ## Library Mapping
 
