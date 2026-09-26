@@ -54,7 +54,8 @@ class Spotify : ISource {
     }
 
     override fun getCuratedPlaylist(id: String): List<Track> {
-        return getAllTracks(playlistIds[id.toInt()]) { i, refresh -> api.getArtist(i, refresh) }
+        val playlistId = playlistIdAt(id) ?: return emptyList()
+        return getAllTracks(playlistId) { i, refresh -> api.getArtist(i, refresh) }
     }
 
     override fun getPlaylists(): List<Playlist> {
@@ -62,8 +63,13 @@ class Spotify : ISource {
     }
 
     override fun getPlaylist(id: String): List<Track> {
-        return playlistTracks(playlistIds[id.toInt()])
+        val playlistId = playlistIdAt(id) ?: return emptyList()
+        return playlistTracks(playlistId)
     }
+
+    // Traktor caches collection ids across restarts, by which time playlistIds is empty again.
+    private fun playlistIdAt(id: String): String? =
+        id.toIntOrNull()?.takeIf { it in playlistIds.indices }?.let { playlistIds[it] }
 
     override fun getTop100(): List<Track> {
         for (category in retryOnRateLimit { api.getBrowseCategories(true) }) {

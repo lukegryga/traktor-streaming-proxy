@@ -34,6 +34,15 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
 }
 
+// librespot's protobuf classes are generated against 3.25.x. Another dependency pulls a newer
+// protobuf-java, and Gradle's highest-wins resolution then breaks descriptor initialisation
+// with NoSuchMethodError on AnyProto.getDescriptor() as soon as a track is loaded.
+configurations.all {
+    resolutionStrategy {
+        force("com.google.protobuf:protobuf-java:3.25.2")
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
 }
