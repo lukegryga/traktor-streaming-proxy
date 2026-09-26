@@ -32,3 +32,6 @@ data/
 credentials.json
 
 .idea
+# Gradle build output
+build/
+.gradle/

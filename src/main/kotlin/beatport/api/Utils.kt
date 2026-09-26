@@ -45,9 +45,9 @@ object Utils {
             if (cur < 10) {
                 res = cur.toString() + res
             } else if (cur < 36) {
-                res = (cur - 10 + 'a'.code).toChar() + res
+                res = (cur - 10 + 'a'.code).toInt().toChar() + res
             } else if (cur < 62) {
-                res = (cur - 36 + 'A'.code).toChar() + res
+                res = (cur - 36 + 'A'.code).toInt().toChar() + res
             } else if (cur.toInt() == 62) {
                 res = "-$res"
             } else if (cur.toInt() == 63) {

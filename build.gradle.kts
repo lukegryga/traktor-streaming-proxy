@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm") version "2.0.20"
+    kotlin("jvm") version "2.4.20"
     application
-    kotlin("plugin.serialization").version("1.8.0")
+    kotlin("plugin.serialization").version("2.4.20")
 }
 
 repositories {
@@ -47,4 +47,17 @@ tasks.test {
 
 application {
     mainClass.set("MainKt")
+}
+
+kotlin {
+    // Pinned rather than inherited: the build runs on JDK 18 in Docker and JDK 27 on Windows,
+    // and an unpinned target follows whichever JDK is present.
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
