@@ -95,7 +95,8 @@ class Spotify : ISource {
     override fun query(query: String, reset: Boolean): List<Track> {
         val url = if (reset || query != searchQuery) {
             searchQuery = query
-            "https://api.spotify.com/v1/search?type=track&limit=50&q=" + URLEncoder.encode(query, "utf-8")
+            // Since February 2026 the search endpoint rejects limit > 10 with "Invalid limit".
+            "https://api.spotify.com/v1/search?type=track&limit=10&q=" + URLEncoder.encode(query, "utf-8")
         } else {
             searchNext ?: return emptyList()
         }
