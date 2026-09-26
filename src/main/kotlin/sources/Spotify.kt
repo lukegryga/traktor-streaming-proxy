@@ -2,6 +2,14 @@ package sources
 
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import java.io.IOException
 import xyz.gianlu.librespot.audio.decoders.AudioQuality
 import xyz.gianlu.librespot.audio.decoders.VorbisOnlyAudioQuality
 import xyz.gianlu.librespot.core.Session
@@ -54,7 +62,7 @@ class Spotify : ISource {
     }
 
     override fun getPlaylist(id: String): List<Track> {
-        return getAllTracks(playlistIds[id.toInt()]) { i, refresh -> api.getPlaylist(i, refresh) }
+        return playlistTracks(playlistIds[id.toInt()])
     }
 
     override fun getTop100(): List<Track> {
@@ -62,7 +70,7 @@ class Spotify : ISource {
             if (category.name == "New Releases") {
                 for (playlist in retryOnRateLimit { api.getCategoryPlaylists(category.id, true) }) {
                     if (playlist.title == "Release Radar") {
-                        return getAllTracks(playlist.id) { i, refresh -> api.getPlaylist(i, refresh) }
+                        return playlistTracks(playlist.id)
                     }
                 }
             }
@@ -104,6 +112,49 @@ class Spotify : ISource {
     }
 
     /**
+     * Spotify's March 2026 migration removed /playlists/{id}/tracks in favour of
+     * /playlists/{id}/items, renaming the wrapper key from "track" to "item". spotify-kt still
+     * targets the old endpoint and gets a 403, so this one collection is fetched directly.
+     */
+    private fun playlistTracks(playlistId: String): List<Track> {
+        val res = mutableListOf<Track>()
+        var next: String? = "https://api.spotify.com/v1/playlists/$playlistId/items?limit=50"
+        while (true) {
+            val url = next ?: break
+            val page = try {
+                retryOnRateLimit {
+                    val con = WebRequests.createConnection(url, "GET", mapOf("Authorization" to webAuth.token()))
+                    Json.parseToJsonElement(WebRequests.request(con).value).jsonObject
+                }
+            } catch (ex: WebRequests.HttpException) {
+                // A Development Mode app may only read playlists the user owns or collaborates on.
+                if (ex.code != 403) throw ex
+                println("Spotify: no access to playlist $playlistId, skipping it")
+                return res
+            }
+            page["items"]?.jsonArray?.forEach { entry ->
+                val track = entry.jsonObject["item"]?.jsonObject ?: return@forEach
+                if (track["is_playable"]?.jsonPrimitive?.booleanOrNull != false) {
+                    val uri = track["uri"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    val artists = track["artists"]?.jsonArray
+                        ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+                        ?.joinToString() ?: ""
+                    res.add(
+                        Track(
+                            uri.substring(uri.lastIndexOf(':') + 1),
+                            listOf(Artist(1, artists)),
+                            track["name"]?.jsonPrimitive?.contentOrNull ?: "",
+                            track["duration_ms"]?.jsonPrimitive?.long ?: 0
+                        )
+                    )
+                }
+            }
+            next = page["next"]?.jsonPrimitive?.contentOrNull
+        }
+        return res
+    }
+
+    /**
      * Draining a whole library pages in a tight loop, which trips Spotify's rolling
      * request window; a 429 there is transient and clears within tens of seconds.
      */
@@ -112,8 +163,13 @@ class Spotify : ISource {
         while (true) {
             try {
                 return block()
-            } catch (ex: SpotifyApi.HttpException) {
-                if (ex.code != 429 || attempt == RATE_LIMIT_RETRIES) throw ex
+            } catch (ex: IOException) {
+                val code = when (ex) {
+                    is SpotifyApi.HttpException -> ex.code
+                    is WebRequests.HttpException -> ex.code
+                    else -> throw ex
+                }
+                if (code != 429 || attempt == RATE_LIMIT_RETRIES) throw ex
                 Thread.sleep(1000L shl attempt)
                 attempt++
             }
