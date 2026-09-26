@@ -3,6 +3,7 @@ package sources
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -15,6 +16,7 @@ import xyz.gianlu.librespot.audio.decoders.VorbisOnlyAudioQuality
 import xyz.gianlu.librespot.core.Session
 import xyz.gianlu.librespot.metadata.TrackId
 import java.io.File
+import java.net.URLEncoder
 
 private const val RATE_LIMIT_RETRIES = 4
 
@@ -30,6 +32,8 @@ class Spotify : ISource {
 
     private var session: Session? = null
     private val playlistIds = mutableListOf<String>()
+    private var searchQuery: String? = null
+    private var searchNext: String? = null
 
     override val name: String
         get() = "Spotify"
@@ -84,8 +88,20 @@ class Spotify : ISource {
         return emptyList()
     }
 
+    /**
+     * spotify-kt stamps every parsed track with its saved status via /me/tracks/contains, an extra
+     * request per page that a Development Mode app is refused and whose result is unused here.
+     */
     override fun query(query: String, reset: Boolean): List<Track> {
-        return mapTracks(retryOnRateLimit { api.query(query, reset) })
+        val url = if (reset || query != searchQuery) {
+            searchQuery = query
+            "https://api.spotify.com/v1/search?type=track&limit=50&q=" + URLEncoder.encode(query, "utf-8")
+        } else {
+            searchNext ?: return emptyList()
+        }
+        val tracks = spotifyGet(url)["tracks"]?.jsonObject ?: return emptyList()
+        searchNext = tracks["next"]?.jsonPrimitive?.contentOrNull
+        return tracks["items"]?.jsonArray?.mapNotNull { trackFrom(it.jsonObject) } ?: emptyList()
     }
 
     override fun download(id: String): ByteArray {
@@ -128,10 +144,7 @@ class Spotify : ISource {
         while (true) {
             val url = next ?: break
             val page = try {
-                retryOnRateLimit {
-                    val con = WebRequests.createConnection(url, "GET", mapOf("Authorization" to webAuth.token()))
-                    Json.parseToJsonElement(WebRequests.request(con).value).jsonObject
-                }
+                spotifyGet(url)
             } catch (ex: WebRequests.HttpException) {
                 // A Development Mode app may only read playlists the user owns or collaborates on.
                 if (ex.code != 403) throw ex
@@ -139,25 +152,30 @@ class Spotify : ISource {
                 return res
             }
             page["items"]?.jsonArray?.forEach { entry ->
-                val track = entry.jsonObject["item"]?.jsonObject ?: return@forEach
-                if (track["is_playable"]?.jsonPrimitive?.booleanOrNull != false) {
-                    val uri = track["uri"]?.jsonPrimitive?.contentOrNull ?: return@forEach
-                    val artists = track["artists"]?.jsonArray
-                        ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
-                        ?.joinToString() ?: ""
-                    res.add(
-                        Track(
-                            uri.substring(uri.lastIndexOf(':') + 1),
-                            listOf(Artist(1, artists)),
-                            track["name"]?.jsonPrimitive?.contentOrNull ?: "",
-                            track["duration_ms"]?.jsonPrimitive?.long ?: 0
-                        )
-                    )
-                }
+                entry.jsonObject["item"]?.jsonObject?.let { trackFrom(it) }?.let { res.add(it) }
             }
             next = page["next"]?.jsonPrimitive?.contentOrNull
         }
         return res
+    }
+
+    private fun spotifyGet(url: String): JsonObject = retryOnRateLimit {
+        val con = WebRequests.createConnection(url, "GET", mapOf("Authorization" to webAuth.token()))
+        Json.parseToJsonElement(WebRequests.request(con).value).jsonObject
+    }
+
+    private fun trackFrom(track: JsonObject): Track? {
+        if (track["is_playable"]?.jsonPrimitive?.booleanOrNull == false) return null
+        val uri = track["uri"]?.jsonPrimitive?.contentOrNull ?: return null
+        val artists = track["artists"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+            ?.joinToString() ?: ""
+        return Track(
+            uri.substring(uri.lastIndexOf(':') + 1),
+            listOf(Artist(1, artists)),
+            track["name"]?.jsonPrimitive?.contentOrNull ?: "",
+            track["duration_ms"]?.jsonPrimitive?.long ?: 0
+        )
     }
 
     /**
