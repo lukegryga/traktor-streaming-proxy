@@ -2,7 +2,11 @@ package sources
 
 import Config.prop
 import com.sun.net.httpserver.HttpServer
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.URLDecoder
@@ -94,20 +98,21 @@ class SpotifyWebAuth {
         }
     }
 
-    private fun store(response: JSONObject) {
-        accessToken = response.getString("access_token")
-        expiresAt = System.currentTimeMillis() + (response.getInt("expires_in") - 60) * 1000L
-        if (response.has("refresh_token")) {
+    private fun store(response: JsonObject) {
+        accessToken = response.getValue("access_token").jsonPrimitive.content
+        expiresAt = System.currentTimeMillis() + (response.getValue("expires_in").jsonPrimitive.int - 60) * 1000L
+        response["refresh_token"]?.jsonPrimitive?.content?.let {
             refreshTokenFile.parentFile?.mkdirs()
-            refreshTokenFile.writeText(response.getString("refresh_token"))
+            refreshTokenFile.writeText(it)
         }
     }
 
-    private fun requestToken(form: String): JSONObject {
+    private fun requestToken(form: String): JsonObject {
         val con = WebRequests.createConnection(
             TOKEN_URL, "POST", mapOf("Content-Type" to "application/x-www-form-urlencoded")
         )
-        return JSONObject(WebRequests.request(WebRequests.post(con, form.toByteArray())).value)
+        val body = WebRequests.request(WebRequests.post(con, form.toByteArray())).value
+        return Json.parseToJsonElement(body).jsonObject
     }
 
     private fun enc(value: String): String = URLEncoder.encode(value, "utf-8")
