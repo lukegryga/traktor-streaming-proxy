@@ -108,8 +108,9 @@ Huge thanks to [@v1nc](https://github.com/v1nc) for providing a working setup fo
 8. Create and start Docker image:
 ```
 docker build -t traktor-streaming-proxy .
-docker run -d --name traktor-streaming-proxy-container -p 443:8443 --restart always traktor-streaming-proxy
+docker run -d --name traktor-streaming-proxy-container -p 443:8443 -p 127.0.0.1:5588:5588 -v traktor-spotify-credentials:/app/data --restart always traktor-streaming-proxy
 ```
+Port `5588` and the `/app/data` volume are only needed for the Spotify source, see [Spotify](#spotify). Leave them out if you do not use it.
 9. Make your system use the proxy by appending the following line to your `C:\Windows\System32\drivers\etc\hosts` file:
 ```
 127.0.0.1   api.beatport.com
@@ -135,6 +136,39 @@ In some Windows installations, Traktor is unable to analyze tracks downloaded fr
 `Cannot execute BPM-detection due to missing transients. Please analyze first`
 
 This issue is related to the used codec in the downloaded audio file. We are currently working on a fix.
+
+### Spotify
+
+Spotify no longer accepts username/password logins, so the source authenticates through OAuth in the browser instead. No Spotify credentials go into `config.properties`. Older versions of this project used `spotify.username` and `spotify.password`; those settings are gone and will now fail with `SpotifyAuthenticationException: BadCredentials`, so make sure you are running a current build.
+
+Add `spotify` to `sources.enabled`, then start the server. The first start blocks until you have completed the login, so do this before launching Traktor. The log prints a link:
+
+```
+OAuth: Visit in your browser and log in: https://accounts.spotify.com/authorize?...
+```
+
+With Docker, read it using:
+
+```
+docker logs traktor-streaming-proxy-container
+```
+
+Open the link, log in to Spotify, and approve the access request. You are redirected to `http://127.0.0.1:5588/login`, which completes the flow and lets the server finish starting.
+
+The resulting token is written to `data/credentials.json` and reused on every later start, so the browser login is a one-time step. In Docker that file lives on the `traktor-spotify-credentials` volume; keep the volume across rebuilds to avoid logging in again. Treat it like a password: it grants access to your Spotify account. To force a fresh login, delete the file:
+
+```
+docker run --rm -v traktor-spotify-credentials:/data ubuntu:jammy rm -f /data/credentials.json
+```
+
+Verify that the source came up without revealing anything sensitive:
+
+```
+curl -k https://api.beatport.com/v4/catalog/genres/
+```
+
+`Spotify` should be listed among the genres. The log shows `Authenticated as <username>!` and no `Can not instantiate class sources.Spotify` line.
+
 ## Library Mapping
 
 Beatport Streaming has the following predefined categories, which we try to match to our available sources in the best possible way.

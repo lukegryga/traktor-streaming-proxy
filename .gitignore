@@ -27,4 +27,8 @@ cert/ca.*
 cert/keystore.*
 cert/server.*
 
+# Spotify OAuth credentials
+data/
+credentials.json
+
 .idea

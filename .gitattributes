@@ -1,0 +1,9 @@
+# The project builds and runs on Linux; CRLF breaks the gradlew shebang in the
+# Docker build. Check everything out as LF regardless of the local core.autocrlf.
+* text=auto eol=lf
+
+# Windows batch files are the one thing that genuinely needs CRLF.
+*.bat text eol=crlf
+
+*.jar binary
+*.png binary

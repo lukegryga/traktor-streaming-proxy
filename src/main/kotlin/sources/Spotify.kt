@@ -75,8 +75,15 @@ class Spotify : ISource {
     }
 
     private fun createSession() {
+        // Kept outside the working directory root so it can be bind-mounted in Docker
+        // without shadowing the application files.
+        val credentialsFile = File("data/credentials.json")
+        credentialsFile.parentFile?.mkdirs()
+
         val conf = Session.Configuration.Builder()
             .setCacheEnabled(false)
+            .setStoreCredentials(true)
+            .setStoredCredentialsFile(credentialsFile)
             .build()
 
         session = Session.Builder(conf).oauth().create()
