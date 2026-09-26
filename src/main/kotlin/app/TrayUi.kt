@@ -69,6 +69,12 @@ object TrayUi {
         add(MenuItem("Sign in / retry sources").apply {
             addActionListener { SourceManager.startAll() }
         })
+        add(MenuItem(if (Startup.isEnabled()) "Disable start with Windows" else "Start with Windows").apply {
+            addActionListener {
+                Startup.toggle()
+                refresh()
+            }
+        })
         add(MenuItem("Open app folder").apply {
             addActionListener { runCatching { java.awt.Desktop.getDesktop().open(File(".").absoluteFile) } }
         })
