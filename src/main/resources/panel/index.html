@@ -112,8 +112,11 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div class="card">
       <h2>Tracks</h2>
       <div class="row"><input id="libFilter" placeholder="Filter by title or artist" class="grow">
+        <span class="sub">Most recently played first</span>
         <button class="danger" id="libClear">Delete all</button></div>
       <div id="libList"></div>
+      <div class="row"><span class="sub grow" id="libRange">—</span>
+        <button id="libPrev">Previous</button><button id="libNext">Next</button></div>
     </div>
   </section>
 
@@ -275,19 +278,36 @@ function render(){
   });
 }
 
-function drawLibrary(){
-  const q = $('libFilter').value.toLowerCase();
-  const rows = state.library.filter(t => t.name.toLowerCase().includes(q));
-  $('libList').innerHTML = rows.length ? rows.map(t =>
+const PAGE_SIZE = 25;
+let libPage = 0;
+
+async function drawLibrary(){
+  const q = encodeURIComponent($('libFilter').value.trim());
+  const r = await fetch('/api/library?page='+libPage+'&size='+PAGE_SIZE+'&q='+q);
+  const data = await r.json();
+  libPage = data.page;
+
+  $('libList').innerHTML = data.items.length ? data.items.map(t =>
     '<div class="row"><div class="grow"><div class="trunc">'+t.name+'</div>'+
     '<div class="sub">'+ago(t.playedAt)+'</div></div>'+
     '<span class="sub">'+mb(t.bytes)+'</span>'+
     '<button data-del="'+t.trackId+'">Delete</button></div>'
-  ).join('') : '<div class="row"><span class="sub">No tracks yet. Load one in Traktor.</span></div>';
+  ).join('') : '<div class="row"><span class="sub">'+
+    ($('libFilter').value ? 'Nothing matches.' : 'No tracks yet. Load one in Traktor.')+'</span></div>';
+
+  const from = data.total ? libPage*PAGE_SIZE+1 : 0;
+  const to = Math.min((libPage+1)*PAGE_SIZE, data.total);
+  $('libRange').textContent = data.total ? from+'–'+to+' of '+data.total : 'No tracks';
+  $('libPrev').disabled = libPage <= 0;
+  $('libNext').disabled = libPage >= data.pages-1;
+
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    const r = await post('/api/library/delete', {trackId:b.dataset.del}); toast(r.message); load();
+    const res = await post('/api/library/delete', {trackId:b.dataset.del}); toast(res.message); load();
   });
 }
+
+$('libPrev').onclick = () => { if(libPage>0){ libPage--; drawLibrary(); } };
+$('libNext').onclick = () => { libPage++; drawLibrary(); };
 
 async function toggleProvider(name){
   const p = state.providers.find(x => x.name===name);
@@ -325,7 +345,7 @@ $('libClear').onclick = async () => {
   const r = await post('/api/library/delete', {trackId:'*'}); toast(r.message); load();
 };
 
-$('libFilter').oninput = drawLibrary;
+$('libFilter').oninput = () => { libPage = 0; drawLibrary(); };
 
 $('cacheClear').onclick = async () => {
   const ok = await confirmDialog("Clear Traktor's Beatport cache?",

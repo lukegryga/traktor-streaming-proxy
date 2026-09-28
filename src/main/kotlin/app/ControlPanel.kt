@@ -43,6 +43,13 @@ object ControlPanel {
                 get("/api/state") { call.respondText(state(), ContentType.Application.Json) }
                 get("/api/logs") { call.respondText(Logging.tail(400), ContentType.Text.Plain) }
 
+                get("/api/library") {
+                    val size = (call.request.queryParameters["size"]?.toIntOrNull() ?: 25).coerceIn(1, 200)
+                    val page = (call.request.queryParameters["page"]?.toIntOrNull() ?: 0).coerceAtLeast(0)
+                    val query = call.request.queryParameters["q"].orEmpty().trim().lowercase()
+                    call.respondText(libraryPage(page, size, query), ContentType.Application.Json)
+                }
+
                 post("/api/settings") {
                     val body = json.parseToJsonElement(call.receiveText()) as JsonObject
                     apply(body)
@@ -193,8 +200,27 @@ object ControlPanel {
                 }
             })
 
-            put("library", buildJsonArray {
-                Library.entries().sortedByDescending { it.playedAt }.forEach { entry ->
+        }.toString()
+    }
+
+    /**
+     * Paged on the server: the panel polls every few seconds, and a library at the 10GB limit holds
+     * over a thousand tracks that nobody wants re-sent each time.
+     */
+    private fun libraryPage(page: Int, size: Int, query: String): String {
+        val matching = Library.entries()
+            .filter { query.isEmpty() || it.file.name.lowercase().contains(query) }
+            .sortedByDescending { it.playedAt }
+
+        val pages = if (matching.isEmpty()) 0 else (matching.size + size - 1) / size
+        val current = page.coerceAtMost((pages - 1).coerceAtLeast(0))
+
+        return buildJsonObject {
+            put("total", matching.size)
+            put("page", current)
+            put("pages", pages)
+            put("items", buildJsonArray {
+                matching.drop(current * size).take(size).forEach { entry ->
                     add(buildJsonObject {
                         put("trackId", entry.trackId)
                         put("name", entry.file.nameWithoutExtension)
