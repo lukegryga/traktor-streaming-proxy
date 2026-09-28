@@ -67,7 +67,15 @@ java {
 tasks.named<org.gradle.jvm.application.tasks.CreateStartScripts>("startScripts") {
     doLast {
         windowsScript.writeText(
-            windowsScript.readText().replace(Regex("set CLASSPATH=.*")) { """set CLASSPATH=%APP_HOME%\lib\*""" }
+            windowsScript.readText()
+                .replace(Regex("set CLASSPATH=.*")) { """set CLASSPATH=%APP_HOME%\lib\*""" }
+                // Config, data, logs and cert are all resolved relative to the working directory,
+                // which is wherever the user happened to launch from - the bin folder when the
+                // .bat is double clicked. Pin it to the install root.
+                .replace(Regex("""for %%i in \("%APP_HOME%"\) do set APP_HOME=%%~fi""")) {
+                    """for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi""" + System.lineSeparator() +
+                        """cd /d "%APP_HOME%""""
+                }
         )
     }
 }
