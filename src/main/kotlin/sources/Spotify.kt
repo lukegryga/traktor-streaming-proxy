@@ -1,6 +1,7 @@
 package sources
 
 import app.Browser
+import app.OAuthCallback
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
 import kotlinx.serialization.json.Json
@@ -19,12 +20,14 @@ import xyz.gianlu.librespot.core.Session
 import xyz.gianlu.librespot.metadata.TrackId
 import java.io.File
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 private const val RATE_LIMIT_RETRIES = 4
 
 // Spotify's own desktop client id, hardcoded in librespot; its OAuth redirect is fixed to this port.
 private const val KEYMASTER_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd"
-private const val LIBRESPOT_REDIRECT_URI = "http://127.0.0.1:5588/login"
+private const val LIBRESPOT_REDIRECT_PORT = 5588
+private const val LIBRESPOT_REDIRECT_URI = "http://127.0.0.1:$LIBRESPOT_REDIRECT_PORT/login"
 
 class Spotify : ISource {
 
@@ -135,8 +138,9 @@ class Spotify : ISource {
         // the browser opened for the user. Credentials are stored by create() either way.
         OAuth(KEYMASTER_CLIENT_ID, LIBRESPOT_REDIRECT_URI).use { oauth ->
             Browser.open(oauth.authUrl)
-            val credentials = oauth.flow()
-            session = Session.Builder(conf).credentials(credentials).create()
+            oauth.setCode(OAuthCallback.await(LIBRESPOT_REDIRECT_PORT, "/login", 10, TimeUnit.MINUTES))
+            oauth.requestToken()
+            session = Session.Builder(conf).credentials(oauth.credentials).create()
         }
     }
 

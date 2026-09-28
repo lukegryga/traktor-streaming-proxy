@@ -69,13 +69,11 @@ tasks.named<org.gradle.jvm.application.tasks.CreateStartScripts>("startScripts")
         windowsScript.writeText(
             windowsScript.readText()
                 .replace(Regex("set CLASSPATH=.*")) { """set CLASSPATH=%APP_HOME%\lib\*""" }
-                // Config, data, logs and cert are all resolved relative to the working directory,
-                // which is wherever the user happened to launch from - the bin folder when the
-                // .bat is double clicked. Pin it to the install root.
-                .replace(Regex("""for %%i in \("%APP_HOME%"\) do set APP_HOME=%%~fi""")) {
-                    """for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi""" + System.lineSeparator() +
-                        """cd /d "%APP_HOME%""""
-                }
+                // Config, data, logs and cert resolve relative to the working directory, which is
+                // the bin folder when the .bat is double clicked. It has to be changed on the
+                // launch line itself: endlocal restores the directory, undoing an earlier cd, and
+                // that line is expanded before endlocal runs.
+                .replace("endlocal & \"%JAVA_EXE%\"", "endlocal & cd /d \"%APP_HOME%\" & \"%JAVA_EXE%\"")
         )
     }
 }

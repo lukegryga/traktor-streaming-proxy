@@ -28,8 +28,8 @@ object Browser {
             }
         }.getOrDefault(false)
 
-        if (!launched) {
-            println("Open this URL in your browser to continue: $url")
-        }
+        // Logged even on success: the tab can be closed or land in the wrong browser, and the
+        // URL is the only way back into a flow that is already waiting on its callback.
+        println(if (launched) "Opened browser for: $url" else "Open this URL in your browser to continue: $url")
     }
 }
