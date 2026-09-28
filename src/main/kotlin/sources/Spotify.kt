@@ -26,6 +26,7 @@ private const val RATE_LIMIT_RETRIES = 4
 
 // Spotify's own desktop client id, hardcoded in librespot; its OAuth redirect is fixed to this port.
 private const val KEYMASTER_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd"
+private const val WEB_API = "https://api.spotify.com/v1"
 private const val LIBRESPOT_REDIRECT_PORT = 5588
 private const val LIBRESPOT_REDIRECT_URI = "http://127.0.0.1:$LIBRESPOT_REDIRECT_PORT/login"
 
@@ -41,6 +42,7 @@ class Spotify : ISource {
 
     private var session: Session? = null
     private val playlistIds = mutableListOf<String>()
+    private var cachedUserId: String? = null
     private var searchQuery: String? = null
     private var searchNext: String? = null
 
@@ -71,8 +73,44 @@ class Spotify : ISource {
         return getAllTracks(playlistId) { i, refresh -> api.getArtist(i, refresh) }
     }
 
+    /**
+     * Fetched directly rather than through the api wrapper, which discards the owner. A
+     * registered app can only read playlists the user owns or collaborates on; Spotify's own
+     * editorial ones appear in the listing but 404 on their tracks, so they are dropped here
+     * instead of showing up in Traktor as playlists that fail to open.
+     */
     override fun getPlaylists(): List<Playlist> {
-        return mapPlaylists(retryOnRateLimit { api.getUsersPlaylists(true) })
+        val me = currentUserId()
+        val entries = mutableListOf<Pair<String, String>>()
+        var url: String? = "$WEB_API/me/playlists?limit=50"
+
+        while (url != null) {
+            val page = retryOnRateLimit { getJson(url!!) }
+            page["items"]?.jsonArray?.forEach { item ->
+                val playlist = item.jsonObject
+                val owner = playlist["owner"]?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
+                val collaborative = playlist["collaborative"]?.jsonPrimitive?.booleanOrNull ?: false
+                val id = playlist["id"]?.jsonPrimitive?.contentOrNull
+                val title = playlist["name"]?.jsonPrimitive?.contentOrNull
+                if (id != null && title != null && (owner == me || collaborative)) {
+                    entries.add(id to title)
+                }
+            }
+            url = page["next"]?.jsonPrimitive?.contentOrNull
+        }
+
+        return entries.map { (id, title) ->
+            playlistIds.add(id)
+            Playlist((playlistIds.size - 1).toLong(), title)
+        }
+    }
+
+    private fun currentUserId(): String = cachedUserId
+        ?: getJson("$WEB_API/me").getValue("id").jsonPrimitive.content.also { cachedUserId = it }
+
+    private fun getJson(url: String): JsonObject {
+        val connection = WebRequests.createConnection(url, "GET", mapOf("Authorization" to webAuth.token()))
+        return Json.parseToJsonElement(WebRequests.request(connection).value).jsonObject
     }
 
     override fun getPlaylist(id: String): List<Track> {
