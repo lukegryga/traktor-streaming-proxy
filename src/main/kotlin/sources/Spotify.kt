@@ -1,6 +1,7 @@
 package sources
 
 import app.Browser
+import app.Library
 import app.OAuthCallback
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
@@ -154,14 +155,18 @@ class Spotify : ISource {
     }
 
     override fun download(id: String): ByteArray {
+        Library.cached(id)?.let {
+            println("Serving $id from the library")
+            return it.readBytes()
+        }
+
         // librespot's session drops and reconnects roughly every two minutes, and takes ten
         // seconds to recover when the socket resets. A load landing in that window fails
         // outright, which mid-set means a deck that will not load.
         var attempt = 0
         while (true) {
             try {
-                streamUri(id)
-                break
+                return store(id)
             } catch (ex: Exception) {
                 if (attempt == SESSION_RETRIES) throw ex
                 println("Track load failed (${ex.message}); retrying in case the session is reconnecting")
@@ -169,7 +174,104 @@ class Spotify : ISource {
                 attempt++
             }
         }
-        return File("output.mp4").readBytes()
+    }
+
+    /** Streams the track, tags it with what Spotify knows about it, and keeps the result. */
+    private fun store(id: String): ByteArray {
+        val track = metadata(id)
+        val title = track?.get("name")?.jsonPrimitive?.contentOrNull
+        val artist = track?.get("artists")?.jsonArray
+            ?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
+
+        val target = Library.prepare(id, title, artist)
+        val ogg = File.createTempFile("track-", ".ogg")
+        val cover = track?.let { coverArt(it) }
+
+        try {
+            val streamed = System.currentTimeMillis()
+            streamOgg(id, ogg)
+            val transcoded = System.currentTimeMillis()
+            transcode(ogg, cover, track, target)
+            val done = System.currentTimeMillis()
+
+            Library.register(id, target.name)
+            val (count, bytes) = Library.stats()
+            println(
+                "Stored ${target.name} (stream ${transcoded - streamed}ms, convert ${done - transcoded}ms); " +
+                    "library holds $count tracks, ${bytes / 1024 / 1024} MB"
+            )
+            return target.readBytes()
+        } finally {
+            ogg.delete()
+            cover?.delete()
+        }
+    }
+
+    private fun streamOgg(id: String, target: File) {
+        val uri = "spotify:track:$id"
+        val stream = session!!.contentFeeder()
+            .load(TrackId.fromUri(uri), VorbisOnlyAudioQuality(AudioQuality.VERY_HIGH), true, null)
+        stream.`in`.stream().use { input -> target.outputStream().use { input.copyTo(it) } }
+    }
+
+    private fun metadata(id: String): JsonObject? =
+        runCatching { spotifyGet("$WEB_API/tracks/$id") }
+            .onFailure { println("No metadata for $id: ${it.message}") }
+            .getOrNull()
+
+    private fun coverArt(track: JsonObject): File? = runCatching {
+        // images are ordered widest first, which is the one worth embedding
+        val url = track["album"]?.jsonObject?.get("images")?.jsonArray
+            ?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull ?: return null
+        val file = File.createTempFile("cover-", ".jpg")
+        java.net.URI(url).toURL().openStream().use { input -> file.outputStream().use { input.copyTo(it) } }
+        file
+    }.onFailure { println("No cover art: ${it.message}") }.getOrNull()
+
+    private fun transcode(ogg: File, cover: File?, track: JsonObject?, target: File) {
+        val command = mutableListOf("ffmpeg", "-y", "-i", ogg.absolutePath)
+        if (cover != null) command.addAll(listOf("-i", cover.absolutePath))
+
+        command.addAll(listOf("-map", "0:a"))
+        if (cover != null) {
+            command.addAll(listOf("-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic"))
+        }
+        // The source is 320kbps Vorbis, so the AAC stage is matched to it rather than left at the
+        // encoder default of roughly 128k, which threw away most of what VERY_HIGH buys.
+        command.addAll(listOf("-c:a", "aac", "-b:a", "320k"))
+
+        track?.let { command.addAll(tags(it)) }
+        command.add(target.absolutePath)
+
+        val proc = ProcessBuilder(command).redirectErrorStream(true).start()
+        val output = proc.inputStream.bufferedReader().use { it.readText() }
+        if (proc.waitFor() != 0) {
+            target.delete()
+            throw IllegalStateException("ffmpeg failed: ${output.takeLast(500)}")
+        }
+    }
+
+    private fun tags(track: JsonObject): List<String> {
+        val album = track["album"]?.jsonObject
+        val artists = track["artists"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+            ?.joinToString(", ")
+
+        return buildList {
+            fun tag(key: String, value: String?) {
+                if (!value.isNullOrBlank()) addAll(listOf("-metadata", "$key=$value"))
+            }
+            tag("title", track["name"]?.jsonPrimitive?.contentOrNull)
+            tag("artist", artists)
+            tag("album", album?.get("name")?.jsonPrimitive?.contentOrNull)
+            tag("album_artist", album?.get("artists")?.jsonArray
+                ?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
+            tag("date", album?.get("release_date")?.jsonPrimitive?.contentOrNull)
+            tag("track", track["track_number"]?.jsonPrimitive?.contentOrNull)
+            tag("disc", track["disc_number"]?.jsonPrimitive?.contentOrNull)
+            tag("isrc", track["external_ids"]?.jsonObject?.get("isrc")?.jsonPrimitive?.contentOrNull)
+            tag("comment", track["uri"]?.jsonPrimitive?.contentOrNull)
+        }
     }
 
     private fun createSession() {
@@ -284,17 +386,4 @@ class Spotify : ISource {
         }
     }
 
-    private fun streamUri(id: String) {
-        val uri = "spotify:track:$id"
-        val stream = session!!.contentFeeder().load(TrackId.fromUri(uri), VorbisOnlyAudioQuality(AudioQuality.HIGH), true, null)
-        val proc = Runtime.getRuntime().exec(arrayOf("ffmpeg", "-y", "-f", "ogg", "-i", "pipe:", "output.mp4"))
-        var cur: Int
-        while (stream.`in`.stream().read().also { cur = it } != -1) {
-            proc.outputStream.write(cur)
-        }
-        stream.`in`.stream().close()
-        proc.outputStream.flush()
-        proc.outputStream.close()
-        proc.waitFor()
-    }
 }

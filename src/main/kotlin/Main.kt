@@ -14,6 +14,7 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
 import kotlinx.serialization.json.*
 import org.apache.log4j.BasicConfigurator
+import app.Library
 import app.Logging
 import app.SingleInstance
 import app.SourceManager
@@ -108,6 +109,7 @@ fun main() {
 
     Config.readConfig()
     TrackIndex.load()
+    Library.load()
     Runtime.getRuntime().addShutdownHook(object : Thread() {
         override fun run() {
             Config.saveConfig()
@@ -179,7 +181,11 @@ fun main() {
     embeddedServer(Netty, applicationEnvironment(), serverConfiguration, module = {
         install(CallLogging) {
             // Default format logs the path only, which hides the query Traktor actually sends.
-            format { call -> "${call.response.status()}: ${call.request.httpMethod.value} - ${call.request.uri}" }
+            // Duration matters because Traktor gives up on a slow download and reports a network error.
+            format { call ->
+                "${call.response.status()}: ${call.request.httpMethod.value} - ${call.request.uri}" +
+                    " in ${call.processingTimeMillis()}ms"
+            }
         }
         install(ContentNegotiation) {
             json(Json {
