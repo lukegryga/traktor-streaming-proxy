@@ -4,6 +4,7 @@ import io.ktor.http.*
 import io.ktor.network.tls.certificates.buildKeyStore
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.serialization.kotlinx.json.*
@@ -16,6 +17,7 @@ import org.apache.log4j.BasicConfigurator
 import app.Logging
 import app.SingleInstance
 import app.SourceManager
+import app.TrackIndex
 import app.TrayUi
 import sources.ISource
 import sources.Spotify
@@ -29,8 +31,6 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.min
 
-val trackIdToSource: HashMap<String, Int> = HashMap()
-val traktorIdToTrackId: HashMap<Long, String> = HashMap()
 
 val allSources = mapOf(
     "youtube" to Youtube::class.java,
@@ -60,11 +60,8 @@ val sources: MutableList<ISource> get() = SourceManager.sources
 
 fun processTracks(id: Int, tracks: List<Track>): List<TrackResponse> {
     return tracks.map { track ->
-        trackIdToSource[track.id] = id
         val traktorId = Utils.encode(track.id.substring(0, min(track.id.length, 10)))
-        if (!traktorIdToTrackId.containsKey(traktorId)) {
-            traktorIdToTrackId[traktorId] = if (track.id.length > 10) track.id.substring(10) else ""
-        }
+        TrackIndex.put(traktorId, id, if (track.id.length > 10) track.id.substring(10) else "")
         TrackResponse(traktorId, track.artists, track.name, track.length_ms)
     }
 }
@@ -100,6 +97,7 @@ fun main() {
     Logging.configure()
 
     Config.readConfig()
+    TrackIndex.load()
     Runtime.getRuntime().addShutdownHook(object : Thread() {
         override fun run() {
             Config.saveConfig()
@@ -169,7 +167,10 @@ fun main() {
     }
 
     embeddedServer(Netty, applicationEnvironment(), serverConfiguration, module = {
-        install(CallLogging)
+        install(CallLogging) {
+            // Default format logs the path only, which hides the query Traktor actually sends.
+            format { call -> "${call.response.status()}: ${call.request.httpMethod.value} - ${call.request.uri}" }
+        }
         install(ContentNegotiation) {
             json(Json {
                 prettyPrint = true
@@ -269,11 +270,18 @@ fun main() {
             }
 
             get("/v4/catalog/tracks/{id}/download/") {
-                call.parameters["id"]?.let {
-                    val trackId = Utils.decode(it.toLong()) + traktorIdToTrackId[it.toLong()]!!
-                    data = sources[trackIdToSource[trackId]!!].download(trackId)
-                    call.respond(Download("https://api.beatport.com/output.mp4", "foo", 1337))
+                val traktorId = call.parameters["id"]?.toLongOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val remainder = TrackIndex.remainder(traktorId)
+                val sourceIndex = TrackIndex.sourceIndex(traktorId)
+                if (remainder == null || sourceIndex == null || sourceIndex !in sources.indices) {
+                    // Traktor keeps its own collection, so it asks for tracks this process has
+                    // never listed. Previously that dereferenced a null and returned a 500.
+                    println("Unknown track $traktorId; browse its playlist again to re-index it")
+                    return@get call.respond(HttpStatusCode.NotFound)
                 }
+                data = sources[sourceIndex].download(Utils.decode(traktorId) + remainder)
+                call.respond(Download("https://api.beatport.com/output.mp4", "foo", 1337))
             }
 
             // Serve the last downloaded track
