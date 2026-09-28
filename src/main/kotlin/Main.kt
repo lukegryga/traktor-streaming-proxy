@@ -17,6 +17,7 @@ import org.apache.log4j.BasicConfigurator
 import app.Logging
 import app.SingleInstance
 import app.SourceManager
+import app.IndexedTrack
 import app.TrackIndex
 import app.TrayUi
 import sources.ISource
@@ -61,7 +62,16 @@ val sources: MutableList<ISource> get() = SourceManager.sources
 fun processTracks(id: Int, tracks: List<Track>): List<TrackResponse> {
     return tracks.map { track ->
         val traktorId = Utils.encode(track.id.substring(0, min(track.id.length, 10)))
-        TrackIndex.put(traktorId, id, if (track.id.length > 10) track.id.substring(10) else "")
+        TrackIndex.put(
+            traktorId,
+            IndexedTrack(
+                source = id,
+                remainder = if (track.id.length > 10) track.id.substring(10) else "",
+                name = track.name,
+                artists = track.artists.map { it.name },
+                lengthMs = track.length_ms
+            )
+        )
         TrackResponse(traktorId, track.artists, track.name, track.length_ms)
     }
 }
@@ -269,18 +279,39 @@ fun main() {
                 }
             }
 
+            // Traktor asks for single track metadata before loading a deck. Unimplemented it
+            // returned 404 and Traktor retried in a tight loop, dozens of times per load.
+            get("/v4/catalog/tracks/") {
+                val traktorId = call.parameters["id"]?.toLongOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val indexed = TrackIndex.get(traktorId)
+                    ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respond(
+                    GenreTrackResponse(
+                        listOf(
+                            TrackResponse(
+                                traktorId,
+                                indexed.artists.map { Artist(1, it) },
+                                indexed.name,
+                                indexed.lengthMs
+                            )
+                        ),
+                        "" /* unused by Traktor */
+                    )
+                )
+            }
+
             get("/v4/catalog/tracks/{id}/download/") {
                 val traktorId = call.parameters["id"]?.toLongOrNull()
                     ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val remainder = TrackIndex.remainder(traktorId)
-                val sourceIndex = TrackIndex.sourceIndex(traktorId)
-                if (remainder == null || sourceIndex == null || sourceIndex !in sources.indices) {
+                val indexed = TrackIndex.get(traktorId)
+                if (indexed == null || indexed.source !in sources.indices) {
                     // Traktor keeps its own collection, so it asks for tracks this process has
                     // never listed. Previously that dereferenced a null and returned a 500.
                     println("Unknown track $traktorId; browse its playlist again to re-index it")
                     return@get call.respond(HttpStatusCode.NotFound)
                 }
-                data = sources[sourceIndex].download(Utils.decode(traktorId) + remainder)
+                data = sources[indexed.source].download(Utils.decode(traktorId) + indexed.remainder)
                 call.respond(Download("https://api.beatport.com/output.mp4", "foo", 1337))
             }
 

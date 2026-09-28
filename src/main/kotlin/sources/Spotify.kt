@@ -23,6 +23,7 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 private const val RATE_LIMIT_RETRIES = 4
+private const val SESSION_RETRIES = 2
 
 // Spotify's own desktop client id, hardcoded in librespot; its OAuth redirect is fixed to this port.
 private const val KEYMASTER_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd"
@@ -153,7 +154,21 @@ class Spotify : ISource {
     }
 
     override fun download(id: String): ByteArray {
-        streamUri(id)
+        // librespot's session drops and reconnects roughly every two minutes, and takes ten
+        // seconds to recover when the socket resets. A load landing in that window fails
+        // outright, which mid-set means a deck that will not load.
+        var attempt = 0
+        while (true) {
+            try {
+                streamUri(id)
+                break
+            } catch (ex: Exception) {
+                if (attempt == SESSION_RETRIES) throw ex
+                println("Track load failed (${ex.message}); retrying in case the session is reconnecting")
+                Thread.sleep(4000L * (attempt + 1))
+                attempt++
+            }
+        }
         return File("output.mp4").readBytes()
     }
 
