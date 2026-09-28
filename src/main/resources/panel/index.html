@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Traktor streaming proxy</title>
+<style>
+:root{
+  --bg:#f3f3f3; --card:#ffffff; --line:#e5e5e5; --line-strong:#d0d0d0;
+  --fg:#1b1b1b; --fg-2:#5c5c5c; --fg-3:#8a8a8a;
+  --accent:#0067c0; --accent-2:#e7f0fa;
+  --ok:#0f7b0f; --ok-bg:#e6f4e6; --warn:#9d5d00; --warn-bg:#fdf3e2; --bad:#c42b1c; --bad-bg:#fdecea;
+  --radius:8px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#202020; --card:#2b2b2b; --line:#383838; --line-strong:#454545;
+    --fg:#f2f2f2; --fg-2:#c8c8c8; --fg-3:#9a9a9a;
+    --accent:#60cdff; --accent-2:#173a4d;
+    --ok:#6ccb5f; --ok-bg:#1b3018; --warn:#fcc56b; --warn-bg:#3a2c12; --bad:#ff99a4; --bad-bg:#3a1d1d;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.5}
+.shell{max-width:920px;margin:0 auto;padding:24px 20px 48px}
+.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.title{font-size:20px;font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tab{padding:9px 15px;font-size:14px;background:none;border:0;color:var(--fg-2);cursor:pointer;
+  border-bottom:2px solid transparent}
+.tab[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:16px}
+.card h2{font-size:14px;font-weight:600;margin:0;padding:13px 16px;border-bottom:1px solid var(--line)}
+.row{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.grow{flex:1;min-width:0}
+.sub{font-size:12px;color:var(--fg-2)}
+.mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px}
+.trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:12px;padding:2px 9px;border-radius:10px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)} .pill.off{background:var(--bg);color:var(--fg-3)}
+button{font:inherit;font-size:13px;padding:5px 12px;border:1px solid var(--line-strong);
+  border-radius:4px;background:var(--card);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--fg-3)} button:disabled{opacity:.5;cursor:default}
+button.danger{color:var(--bad)} button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+input,select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line-strong);
+  border-radius:4px;background:var(--card);color:var(--fg)}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.sw{width:40px;height:22px;border-radius:11px;border:1px solid var(--line-strong);background:var(--bg);
+  position:relative;cursor:pointer;flex:none;padding:0}
+.sw span{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--fg-2);
+  transition:left .12s,background .12s}
+.sw[aria-checked=true]{background:var(--accent);border-color:var(--accent)}
+.sw[aria-checked=true] span{left:21px;background:#fff}
+.bar{height:8px;border-radius:4px;background:var(--bg);overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.logs{margin:0;padding:12px 16px;background:var(--bg);border-radius:0 0 var(--radius) var(--radius);
+  max-height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.note{font-size:12px;padding:10px 12px;border-radius:4px;background:var(--accent-2);color:var(--fg);margin:0 16px 13px}
+dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);color:var(--fg);
+  padding:0;max-width:440px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dlg{padding:18px 20px} .dlg h3{margin:0 0 10px;font-size:16px}
+.dlg ul{margin:12px 0;padding-left:18px;font-size:13px} .dlg li{margin:4px 0}
+.acts{display:flex;gap:8px;justify-content:flex-end;padding:0 20px 18px}
+.hide{display:none}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card);
+  border:1px solid var(--line-strong);border-radius:var(--radius);padding:10px 16px;font-size:13px;
+  box-shadow:0 4px 16px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .18s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="head">
+    <div class="title">Traktor streaming proxy</div>
+    <div class="sub"><span class="dot" style="background:var(--ok)"></span><span id="hdr">loading</span></div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="providers">Providers</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="library">Library</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="logs">Logs</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="settings">Settings</button>
+  </div>
+
+  <section id="providers"><div class="card" id="provList"></div></section>
+
+  <section id="library" class="hide">
+    <div class="card">
+      <h2>Storage</h2>
+      <div class="row" style="display:block">
+        <div style="display:flex;justify-content:space-between;margin-bottom:7px">
+          <span id="libUsed">—</span><span class="sub" id="libCount">—</span>
+        </div>
+        <div class="bar"><i id="libBar" style="width:0"></i></div>
+      </div>
+      <div class="row">
+        <div class="grow"><div>Limit library size</div>
+          <div class="sub">Least recently played tracks are removed first</div></div>
+        <input id="limitVal" type="number" min="1" style="width:76px">
+        <select id="limitUnit"><option value="1073741824">GB</option><option value="1048576">MB</option></select>
+        <button class="sw" id="limitOn" role="switch" aria-checked="false"><span></span></button>
+      </div>
+      <div class="row">
+        <div class="grow"><div>Folder</div><div class="sub mono trunc" id="libPath">—</div></div>
+        <button id="libMove">Change</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tracks</h2>
+      <div class="row"><input id="libFilter" placeholder="Filter by title or artist" class="grow">
+        <button class="danger" id="libClear">Delete all</button></div>
+      <div id="libList"></div>
+    </div>
+  </section>
+
+  <section id="logs" class="hide">
+    <div class="card">
+      <h2>Logs</h2>
+      <div class="row"><input id="logFilter" placeholder="Search" class="grow">
+        <span class="sub">Follow</span>
+        <button class="sw" id="logFollow" role="switch" aria-checked="true"><span></span></button></div>
+      <pre class="logs mono" id="logBody">loading</pre>
+    </div>
+  </section>
+
+  <section id="settings" class="hide">
+    <div class="card">
+      <h2>Server</h2>
+      <div class="row"><div class="grow">Beatport port</div>
+        <input id="serverPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
+      <div class="row"><div class="grow">Control panel port</div>
+        <input id="uiPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
+      <div class="row"><div class="grow"><div>Use certificate from cert folder</div>
+        <div class="sub" id="ksState">—</div></div>
+        <button class="sw" id="useKeystore" role="switch" aria-checked="false"><span></span></button></div>
+    </div>
+    <div class="card">
+      <h2>Traktor</h2>
+      <div class="row"><div class="grow">Searchable providers</div>
+        <input id="searchable" placeholder="blank means all enabled" style="width:210px"></div>
+      <div class="row"><div class="grow"><div>Beatport cache</div>
+        <div class="sub" id="cacheState">—</div></div>
+        <button class="danger" id="cacheClear">Clear</button></div>
+    </div>
+    <div class="card">
+      <h2>Credentials</h2>
+      <div class="row"><div class="grow">Spotify client id</div>
+        <input id="spotifyClientId" class="mono" style="width:250px"></div>
+      <div class="row"><div class="grow">Tidal client id</div>
+        <input id="tidalClientId" class="mono" style="width:250px" placeholder="Not set"></div>
+      <div class="row"><div class="grow">Tidal client secret</div>
+        <input id="tidalClientSecret" class="mono" type="password" style="width:250px" placeholder="Not set"></div>
+    </div>
+    <div class="card">
+      <h2>Application</h2>
+      <div class="row"><div class="grow"><div>Start with Windows</div>
+        <div class="sub">Runs hidden in the tray at sign-in</div></div>
+        <button class="sw" id="autostart" role="switch" aria-checked="false"><span></span></button></div>
+      <div class="row"><div class="grow">Audio quality</div>
+        <select id="quality"><option value="true">320k (very high)</option><option value="false">160k (high)</option></select></div>
+      <div class="row"><div class="grow">Log level</div>
+        <select id="logLevel"><option>INFO</option><option>DEBUG</option><option>WARN</option></select></div>
+      <div class="row"><div class="grow"><div>Configuration file</div>
+        <div class="sub">Everything here writes to config.properties automatically</div></div></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg"><div class="dlg">
+  <h3 id="dlgTitle">Confirm</h3>
+  <p class="sub" id="dlgBody"></p>
+  <ul id="dlgList"></ul>
+</div><div class="acts">
+  <button id="dlgNo">Cancel</button><button class="danger" id="dlgYes">Continue</button>
+</div></dialog>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = null, logTimer = null;
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3200); }
+
+function mb(n){ if(n<1024) return n+' B';
+  const u=['KB','MB','GB','TB']; let v=n/1024, i=0;
+  while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+  return (v<10?v.toFixed(1):Math.round(v))+' '+u[i]; }
+
+function ago(ts){ if(!ts) return 'never played';
+  const s=Math.round((Date.now()-ts)/1000);
+  if(s<90) return 'just played'; if(s<5400) return Math.round(s/60)+' min ago';
+  if(s<172800) return Math.round(s/3600)+' h ago'; return Math.round(s/86400)+' d ago'; }
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x===t)));
+  ['providers','library','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
+  if(t.dataset.tab==='logs') loadLogs();
+});
+
+function confirmDialog(title, body, items){
+  return new Promise(resolve => {
+    $('dlgTitle').textContent = title; $('dlgBody').textContent = body;
+    $('dlgList').innerHTML = items.map(i => '<li>'+i+'</li>').join('');
+    const done = v => { $('dlg').close(); resolve(v); };
+    $('dlgYes').onclick = () => done(true); $('dlgNo').onclick = () => done(false);
+    $('dlg').showModal();
+  });
+}
+
+async function post(path, body){
+  const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})});
+  return r.json();
+}
+
+async function save(patch){ state = await post('/api/settings', patch); render(); toast('Saved'); }
+
+async function load(){ state = await (await fetch('/api/state')).json(); render(); }
+
+function render(){
+  const s = state;
+  $('hdr').textContent = 'Listening on ' + s.serverPort + (s.traktorRunning ? ' · Traktor open' : '');
+
+  $('provList').innerHTML = s.providers.map(p => {
+    const cls = p.state==='READY' ? 'ok' : p.state==='STARTING' ? 'warn' : p.state==='FAILED' ? 'bad' : 'off';
+    const label = p.state==='READY' ? 'Ready' : p.state==='STARTING' ? 'Signing in' :
+      p.state==='FAILED' ? 'Failed' : p.enabled ? 'Not started' : 'Disabled';
+    const detail = p.detail ? p.detail : (p.needsSignIn ? (p.signedIn ? 'Signed in' : 'Not signed in')
+      : 'No sign-in required');
+    const btn = p.needsSignIn
+      ? '<button data-signout="'+p.name+'"'+(p.signedIn?'':' disabled')+'>Sign out</button>' : '';
+    return '<div class="row"><div class="grow"><div style="text-transform:capitalize">'+p.name+'</div>'+
+      '<div class="sub trunc">'+detail+'</div></div>'+
+      '<span class="pill '+cls+'">'+label+'</span>'+btn+
+      '<button class="sw" role="switch" aria-checked="'+p.enabled+'" data-prov="'+p.name+'"><span></span></button></div>';
+  }).join('');
+
+  const pct = s.libraryLimitEnabled && s.libraryLimitBytes>0
+    ? Math.min(100, Math.round(s.trackBytes/s.libraryLimitBytes*100)) : 0;
+  $('libUsed').textContent = s.libraryLimitEnabled
+    ? mb(s.trackBytes)+' of '+mb(s.libraryLimitBytes)+' used'
+    : mb(s.trackBytes)+' used, no limit';
+  $('libCount').textContent = s.trackCount+(s.trackCount===1?' track':' tracks');
+  $('libBar').style.width = pct+'%';
+  $('libPath').textContent = s.libraryPath;
+  $('limitOn').setAttribute('aria-checked', String(s.libraryLimitEnabled));
+  const gb = s.libraryLimitBytes % 1073741824 === 0;
+  $('limitUnit').value = gb ? '1073741824' : '1048576';
+  $('limitVal').value = Math.round(s.libraryLimitBytes / (gb?1073741824:1048576));
+  $('limitVal').disabled = !s.libraryLimitEnabled; $('limitUnit').disabled = !s.libraryLimitEnabled;
+  drawLibrary();
+
+  $('serverPort').value = s.serverPort; $('uiPort').value = s.uiPort;
+  $('useKeystore').setAttribute('aria-checked', String(s.useKeystore));
+  $('ksState').textContent = s.keystorePresent ? 'keystore.jks found' : 'keystore.jks missing';
+  $('ksState').style.color = s.keystorePresent ? 'var(--ok)' : 'var(--bad)';
+  $('cacheState').textContent = 'Account '+(s.accountId||'unknown')+' · '+s.traktorCacheFiles+
+    ' files · '+mb(s.traktorCacheBytes);
+  $('searchable').value = s.searchableSources;
+  $('spotifyClientId').value = s.spotifyClientId;
+  $('tidalClientId').value = s.tidalClientId;
+  $('tidalClientSecret').placeholder = s.tidalClientSecret ? 'unchanged' : 'Not set';
+  $('autostart').setAttribute('aria-checked', String(s.autostart));
+  $('quality').value = String(s.veryHighQuality); $('logLevel').value = s.logLevel;
+
+  document.querySelectorAll('[data-prov]').forEach(b => b.onclick = () => toggleProvider(b.dataset.prov));
+  document.querySelectorAll('[data-signout]').forEach(b => b.onclick = async () => {
+    const r = await post('/api/signout', {name:b.dataset.signout}); toast(r.message); load();
+  });
+}
+
+function drawLibrary(){
+  const q = $('libFilter').value.toLowerCase();
+  const rows = state.library.filter(t => t.name.toLowerCase().includes(q));
+  $('libList').innerHTML = rows.length ? rows.map(t =>
+    '<div class="row"><div class="grow"><div class="trunc">'+t.name+'</div>'+
+    '<div class="sub">'+ago(t.playedAt)+'</div></div>'+
+    '<span class="sub">'+mb(t.bytes)+'</span>'+
+    '<button data-del="'+t.trackId+'">Delete</button></div>'
+  ).join('') : '<div class="row"><span class="sub">No tracks yet. Load one in Traktor.</span></div>';
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    const r = await post('/api/library/delete', {trackId:b.dataset.del}); toast(r.message); load();
+  });
+}
+
+async function toggleProvider(name){
+  const p = state.providers.find(x => x.name===name);
+  const on = !p.enabled;
+  const ok = await confirmDialog(
+    (on?'Enable ':'Disable ')+name+'?',
+    'Traktor identifies genres and playlists by position, so changing the provider list shifts every id in its collection. Its Beatport cache has to be cleared so it stops loading the wrong tracks.',
+    ["Deletes Traktor's cache for account "+(state.accountId||'unknown'),
+     'Requires a Traktor restart',
+     'Keeps your downloaded library intact']);
+  if(!ok) return;
+  const r = await post('/api/provider', {name, enabled:on});
+  toast(r.message); load();
+}
+
+$('limitOn').onclick = () => save({libraryLimitEnabled: $('limitOn').getAttribute('aria-checked')!=='true'});
+const applyLimit = () => { const v = parseInt($('limitVal').value,10);
+  if(!v || v<1){ toast('Enter a size of at least 1'); return; }
+  save({libraryLimitBytes: v*parseInt($('limitUnit').value,10)}); };
+$('limitVal').onchange = applyLimit; $('limitUnit').onchange = applyLimit;
+
+$('libMove').onclick = async () => {
+  const path = prompt('New library folder', state.libraryPath);
+  if(!path || path===state.libraryPath) return;
+  toast('Moving files...');
+  const r = await post('/api/library/move', {path});
+  toast(r.message); load();
+};
+
+$('libClear').onclick = async () => {
+  const ok = await confirmDialog('Delete all cached tracks?',
+    'Every downloaded file is removed. Tracks download again the next time you load them.',
+    [state.trackCount+' files', mb(state.trackBytes)+' freed']);
+  if(!ok) return;
+  const r = await post('/api/library/delete', {trackId:'*'}); toast(r.message); load();
+};
+
+$('libFilter').oninput = drawLibrary;
+
+$('cacheClear').onclick = async () => {
+  const ok = await confirmDialog("Clear Traktor's Beatport cache?",
+    'Traktor rebuilds its collection the next time it connects.',
+    ['Requires Traktor to be closed', 'Keeps your downloaded library intact']);
+  if(!ok) return;
+  const r = await post('/api/traktor/clear', {}); toast(r.message); load();
+};
+
+$('useKeystore').onclick = () => save({useKeystore: $('useKeystore').getAttribute('aria-checked')!=='true'});
+$('autostart').onclick = async () => { state = await post('/api/startup', {}); render(); toast('Saved'); };
+$('serverPort').onchange = () => save({serverPort: $('serverPort').value});
+$('uiPort').onchange = () => save({uiPort: $('uiPort').value});
+$('searchable').onchange = () => save({searchableSources: $('searchable').value});
+$('spotifyClientId').onchange = () => save({spotifyClientId: $('spotifyClientId').value});
+$('tidalClientId').onchange = () => save({tidalClientId: $('tidalClientId').value});
+$('tidalClientSecret').onchange = () => { if($('tidalClientSecret').value)
+  save({tidalClientSecret: $('tidalClientSecret').value}); };
+$('quality').onchange = () => save({veryHighQuality: $('quality').value==='true'});
+$('logLevel').onchange = () => save({logLevel: $('logLevel').value});
+
+async function loadLogs(){
+  const text = await (await fetch('/api/logs')).text();
+  const q = $('logFilter').value.toLowerCase();
+  const lines = q ? text.split('\n').filter(l => l.toLowerCase().includes(q)).join('\n') : text;
+  const body = $('logBody');
+  body.textContent = lines || 'Nothing matches.';
+  if($('logFollow').getAttribute('aria-checked')==='true') body.scrollTop = body.scrollHeight;
+}
+$('logFilter').oninput = loadLogs;
+$('logFollow').onclick = () => { const b=$('logFollow');
+  b.setAttribute('aria-checked', String(b.getAttribute('aria-checked')!=='true')); loadLogs(); };
+
+load();
+setInterval(() => { if($('logs').classList.contains('hide')) load(); else loadLogs(); }, 4000);
+</script>
+</body>
+</html>

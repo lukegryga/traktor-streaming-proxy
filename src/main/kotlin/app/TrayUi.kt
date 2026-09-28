@@ -75,6 +75,11 @@ object TrayUi {
                 refresh()
             }
         })
+        add(MenuItem("Open control panel").apply {
+            addActionListener { Browser.open("http://127.0.0.1:${Settings.uiPort}") }
+        })
+        addSeparator()
+
         Browser.pendingUrl?.let { url ->
             add(MenuItem("Re-open Spotify login page").apply {
                 addActionListener { Browser.open(url) }

@@ -33,6 +33,28 @@ object Logging {
 
     fun logFile(): File = File(LOG_PATH).absoluteFile
 
+    fun setLevel(name: String) {
+        val level = Level.toLevel(name.uppercase(), Level.INFO)
+        Logger.getRootLogger().level = level
+        println("Log level set to ${level.toString()}")
+    }
+
+    /** Read from the end so a log that has grown to megabytes does not have to be held in memory. */
+    fun tail(lines: Int): String {
+        val file = File(LOG_PATH)
+        if (!file.isFile) return ""
+        return runCatching {
+            val kept = ArrayDeque<String>(lines)
+            file.bufferedReader().useLines { sequence ->
+                sequence.forEach {
+                    if (kept.size == lines) kept.removeFirst()
+                    kept.addLast(it)
+                }
+            }
+            kept.joinToString("\n")
+        }.getOrElse { "Could not read the log: ${it.message}" }
+    }
+
     private class Tee(private val console: OutputStream, private val file: OutputStream) : OutputStream() {
         override fun write(b: Int) {
             console.write(b)

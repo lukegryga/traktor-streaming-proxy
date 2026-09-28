@@ -3,6 +3,7 @@ package sources
 import app.Browser
 import app.Library
 import app.OAuthCallback
+import app.Settings
 import beatport.api.*
 import io.github.tiefensuche.spotify.api.SpotifyApi
 import kotlinx.serialization.json.Json
@@ -195,6 +196,7 @@ class Spotify : ISource {
             val done = System.currentTimeMillis()
 
             Library.register(id, target.name)
+            Library.enforceLimit()
             val (count, bytes) = Library.stats()
             println(
                 "Stored ${target.name} (stream ${transcoded - streamed}ms, convert ${done - transcoded}ms); " +
@@ -210,7 +212,12 @@ class Spotify : ISource {
     private fun streamOgg(id: String, target: File) {
         val uri = "spotify:track:$id"
         val stream = session!!.contentFeeder()
-            .load(TrackId.fromUri(uri), VorbisOnlyAudioQuality(AudioQuality.VERY_HIGH), true, null)
+            .load(
+                TrackId.fromUri(uri),
+                VorbisOnlyAudioQuality(if (Settings.veryHighQuality) AudioQuality.VERY_HIGH else AudioQuality.HIGH),
+                true,
+                null
+            )
         stream.`in`.stream().use { input -> target.outputStream().use { input.copyTo(it) } }
     }
 

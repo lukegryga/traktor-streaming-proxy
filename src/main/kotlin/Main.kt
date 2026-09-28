@@ -14,6 +14,7 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
 import kotlinx.serialization.json.*
 import org.apache.log4j.BasicConfigurator
+import app.ControlPanel
 import app.Library
 import app.Logging
 import app.SingleInstance
@@ -137,6 +138,9 @@ fun main() {
         return
     }
 
+    Logging.setLevel(app.Settings.logLevel)
+    ControlPanel.start()
+
     if (!TrayUi.install()) {
         println("System tray unavailable; running headless.")
     }
@@ -213,11 +217,11 @@ fun main() {
             }
 
             get("/v4/my/license/") {
-                val licenseName = prop.getProperty("beatport.license", "macos")
-                val licenseFile = Config::class.java.getResource("licenses/${licenseName}.json")
+                // This build only targets Windows, so the license is not a choice worth offering.
+                val licenseFile = Config::class.java.getResource("licenses/windows.json")
 
                 if (licenseFile == null) {
-                    call.respond(HttpStatusCode.InternalServerError, "License file '${licenseName}' not found")
+                    call.respond(HttpStatusCode.InternalServerError, "License file 'windows' not found")
                 } else {
                     call.respondBytes(licenseFile.readBytes())
                 }

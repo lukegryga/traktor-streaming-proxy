@@ -3,32 +3,68 @@ package app
 import java.io.File
 import java.util.Properties
 
+data class LibraryEntry(val trackId: String, val file: File, val playedAt: Long)
+
 /**
  * Transcoded tracks kept on disk so a second load costs no Spotify streaming at all.
  *
- * mp4 rather than the original Ogg Vorbis because Traktor's streaming path refuses Vorbis outright
+ * mp4 rather than the source Ogg Vorbis because Traktor's streaming path refuses Vorbis outright
  * (verified: a valid 44.1kHz stereo .ogg is rejected as unplayable), so the converted file is the
  * only one that can be served and a stored ogg would have to be converted on every load anyway.
  *
- * Files are named for their track so the directory is browsable, which means the id to file mapping
+ * Files are named for their track so the folder is browsable, which means the id to file mapping
  * has to be recorded rather than derived from the name.
  */
 object Library {
 
-    private val root = File("library")
     private val indexFile = File("data/library-index.properties")
-    private val index = HashMap<String, String>()
+    private val names = HashMap<String, String>()
+    private val played = HashMap<String, Long>()
 
     private const val MAX_NAME = 120
+
+    fun root(): File = Settings.libraryPath
 
     fun load() {
         if (!indexFile.exists()) return
         runCatching {
             val props = Properties()
             indexFile.inputStream().use { props.load(it) }
-            props.forEach { key, value -> index[key.toString()] = value.toString() }
-            println("Library index holds ${index.size} tracks")
+            props.forEach { key, value ->
+                val id = key.toString()
+                // "<epoch millis>|<file name>"; entries written before eviction existed have no timestamp.
+                val raw = value.toString()
+                val split = raw.indexOf('|')
+                if (split > 0) {
+                    names[id] = raw.substring(split + 1)
+                    played[id] = raw.substring(0, split).toLongOrNull() ?: 0L
+                } else {
+                    names[id] = raw
+                    played[id] = 0L
+                }
+            }
+            println("Library index holds ${names.size} tracks")
         }.onFailure { println("Could not read ${indexFile.name}: ${it.message}") }
+        adoptOrphans()
+    }
+
+    /**
+     * Files on disk with no index entry would otherwise be invisible: absent from the panel and not
+     * counted against the size limit, so the library could grow past it unnoticed.
+     */
+    private fun adoptOrphans() {
+        val known = synchronized(names) { names.values.toSet() }
+        val orphans = root().listFiles { f: File -> f.isFile && f.name.endsWith(".mp4") }
+            ?.filterNot { known.contains(it.name) }
+            ?: return
+
+        orphans.forEach { file ->
+            val id = file.nameWithoutExtension
+            synchronized(names) { names[id] = file.name }
+            synchronized(played) { played[id] = file.lastModified() }
+            println("Adopted untracked library file ${file.name}")
+        }
+        if (orphans.isNotEmpty()) flush()
     }
 
     /**
@@ -36,18 +72,20 @@ object Library {
      * since been deleted or emptied - the entry is dropped so the next store rebuilds it.
      */
     fun cached(trackId: String): File? {
-        val named = synchronized(index) { index[trackId] }
+        val named = synchronized(names) { names[trackId] }
         if (named != null) {
-            val file = File(root, named)
-            if (file.isFile && file.length() > 0) return file
+            val file = File(root(), named)
+            if (file.isFile && file.length() > 0) {
+                touch(trackId)
+                return file
+            }
             println("Library entry for $trackId points at missing file $named; downloading it again")
-            synchronized(index) { index.remove(trackId) }
-            flush()
+            forget(trackId)
             return null
         }
 
         // Tracks stored before files were named adopt their old id-based name rather than download again.
-        val legacy = File(root, "$trackId.mp4")
+        val legacy = File(root(), "$trackId.mp4")
         if (legacy.isFile && legacy.length() > 0) {
             register(trackId, legacy.name)
             return legacy
@@ -57,23 +95,108 @@ object Library {
 
     /** Reserves a file for the track, replacing any previous file for the same id. */
     fun prepare(trackId: String, title: String?, artist: String?): File {
-        root.mkdirs()
-        val target = File(root, fileName(trackId, title, artist))
-        synchronized(index) { index[trackId] }
-            ?.let { File(root, it) }
+        root().mkdirs()
+        val target = File(root(), fileName(trackId, title, artist))
+        synchronized(names) { names[trackId] }
+            ?.let { File(root(), it) }
             ?.takeIf { it.isFile && it.name != target.name }
             ?.delete()
         return target
     }
 
     fun register(trackId: String, fileName: String) {
-        synchronized(index) { index[trackId] = fileName }
+        synchronized(names) { names[trackId] = fileName }
+        touch(trackId)
+    }
+
+    fun touch(trackId: String) {
+        synchronized(played) { played[trackId] = System.currentTimeMillis() }
         flush()
     }
 
-    fun stats(): Pair<Int, Long> {
-        val files = root.listFiles { f: File -> f.isFile && f.name.endsWith(".mp4") } ?: return 0 to 0L
-        return files.size to files.sumOf { it.length() }
+    fun entries(): List<LibraryEntry> = synchronized(names) { names.toMap() }
+        .mapNotNull { (id, name) ->
+            File(root(), name).takeIf { it.isFile }?.let {
+                LibraryEntry(id, it, synchronized(played) { played[id] } ?: 0L)
+            }
+        }
+
+    fun stats(): Pair<Int, Long> = entries().let { it.size to it.sumOf { entry -> entry.file.length() } }
+
+    fun delete(trackId: String): Boolean {
+        val name = synchronized(names) { names[trackId] } ?: return false
+        File(root(), name).delete()
+        forget(trackId)
+        return true
+    }
+
+    fun deleteAll(): Int {
+        val all = entries()
+        all.forEach { it.file.delete() }
+        synchronized(names) { names.clear() }
+        synchronized(played) { played.clear() }
+        flush()
+        return all.size
+    }
+
+    /**
+     * Evicts least recently played tracks until the library fits. Silent by design: being refused a
+     * track mid-set is worse than quietly losing the one played longest ago.
+     */
+    fun enforceLimit() {
+        if (!Settings.libraryLimitEnabled) return
+        val limit = Settings.libraryLimitBytes
+        if (limit <= 0) return
+
+        var total = entries().sumOf { it.file.length() }
+        if (total <= limit) return
+
+        entries().sortedBy { it.playedAt }.forEach { entry ->
+            if (total <= limit) return
+            total -= entry.file.length()
+            println("Library over limit; evicting ${entry.file.name}")
+            entry.file.delete()
+            forget(entry.trackId)
+        }
+    }
+
+    /**
+     * Copies before deleting rather than renaming: the destination is often another drive, where a
+     * rename fails outright. The index only moves once every file has landed.
+     */
+    fun moveTo(destination: File): Result<Int> = runCatching {
+        val source = root()
+        if (destination.canonicalFile == source.canonicalFile) return@runCatching 0
+
+        destination.mkdirs()
+        if (!destination.isDirectory) throw IllegalArgumentException("${destination.absolutePath} is not a directory")
+
+        val files = entries()
+        val needed = files.sumOf { it.file.length() }
+        val free = destination.usableSpace
+        if (free < needed) {
+            throw IllegalStateException("Needs ${needed / 1024 / 1024} MB, only ${free / 1024 / 1024} MB free")
+        }
+
+        files.forEach { entry ->
+            val target = File(destination, entry.file.name)
+            entry.file.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+            if (target.length() != entry.file.length()) {
+                target.delete()
+                throw IllegalStateException("Copy of ${entry.file.name} is incomplete; nothing was removed")
+            }
+        }
+
+        Settings.libraryPath = destination
+        files.forEach { it.file.delete() }
+        println("Moved ${files.size} tracks to ${destination.absolutePath}")
+        files.size
+    }
+
+    private fun forget(trackId: String) {
+        synchronized(names) { names.remove(trackId) }
+        synchronized(played) { played.remove(trackId) }
+        flush()
     }
 
     private fun fileName(trackId: String, title: String?, artist: String?): String {
@@ -83,7 +206,7 @@ object Library {
         val safe = sanitise(base)
 
         // Two tracks can legitimately share a title and artist, and one must not overwrite the other.
-        val taken = synchronized(index) { index.any { (key, value) -> key != trackId && value == "$safe.mp4" } }
+        val taken = synchronized(names) { names.any { (key, value) -> key != trackId && value == "$safe.mp4" } }
         return if (taken) "$safe [${trackId.take(6)}].mp4" else "$safe.mp4"
     }
 
@@ -99,9 +222,13 @@ object Library {
     private fun flush() {
         runCatching {
             val props = Properties()
-            synchronized(index) { index.forEach { (key, value) -> props.setProperty(key, value) } }
+            synchronized(names) {
+                names.forEach { (key, value) ->
+                    props.setProperty(key, "${synchronized(played) { played[key] } ?: 0L}|$value")
+                }
+            }
             indexFile.parentFile?.mkdirs()
-            indexFile.outputStream().use { props.store(it, "spotify track id -> library file name") }
+            indexFile.outputStream().use { props.store(it, "spotify track id -> last played millis and library file name") }
         }.onFailure { println("Could not write ${indexFile.name}: ${it.message}") }
     }
 }
