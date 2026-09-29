@@ -140,6 +140,9 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="row"><span class="grow sub" id="certLine">—</span>
         <span class="pill" id="certPill">—</span>
         <button id="certNew">Regenerate</button></div>
+      <div class="row"><span class="grow sub" id="hostsLine">—</span>
+        <span class="pill" id="hostsPill">—</span>
+        <button id="hostsFix" class="hide">Fix</button></div>
     </div>
     <div class="card">
       <h2>Traktor</h2>
@@ -267,6 +270,12 @@ function render(){
   $('certPill').textContent = c.healthy ? 'Working' : 'Needs attention';
   $('certPill').className = 'pill '+(c.healthy ? 'ok' : 'bad');
 
+  $('hostsLine').textContent = s.hosts.ok ? s.hosts.detail
+    : s.hosts.detail+' — Traktor cannot reach this server until it does';
+  $('hostsPill').textContent = s.hosts.ok ? 'Working' : 'Needs attention';
+  $('hostsPill').className = 'pill '+(s.hosts.ok ? 'ok' : 'bad');
+  $('hostsFix').classList.toggle('hide', s.hosts.ok);
+
   $('cacheState').textContent = 'Account '+(s.accountId||'unknown')+' · '+s.traktorCacheFiles+
     ' files · '+mb(s.traktorCacheBytes);
   $('searchable').value = s.searchableSources;
@@ -350,6 +359,11 @@ $('libClear').onclick = async () => {
 };
 
 $('libFilter').oninput = () => { libPage = 0; drawLibrary(); };
+
+$('hostsFix').onclick = async () => {
+  toast('Waiting for the administrator prompt...');
+  const r = await post('/api/hosts/fix', {}); toast(r.message); load();
+};
 
 $('certNew').onclick = async () => {
   const ok = await confirmDialog('Regenerate the certificate?',

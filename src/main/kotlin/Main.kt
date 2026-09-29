@@ -124,6 +124,7 @@ fun main() {
 
     // Provisioned here rather than by a setup script: without a trusted certificate for
     // api.beatport.com, Traktor refuses the connection and nothing else the server does matters.
+    app.Hosts.ensure()
     app.Certificates.ensure()
         .onSuccess { println(it) }
         .onFailure { System.err.println("Certificate setup failed: ${it.message}") }

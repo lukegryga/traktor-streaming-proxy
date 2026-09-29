@@ -93,6 +93,14 @@ object ControlPanel {
                     )
                 }
 
+                post("/api/hosts/fix") {
+                    val outcome = Hosts.fix()
+                    call.respondText(
+                        outcome.fold({ result(true, it) }, { result(false, it.message ?: "Failed") }),
+                        ContentType.Application.Json
+                    )
+                }
+
                 post("/api/traktor/clear") {
                     val outcome = TraktorCache.clear()
                     call.respondText(
@@ -175,6 +183,12 @@ object ControlPanel {
         return buildJsonObject {
             put("serverPort", Settings.serverPort)
             put("uiPort", Settings.uiPort)
+
+            val hosts = Hosts.state()
+            put("hosts", buildJsonObject {
+                put("ok", hosts.status == HostsStatus.OK)
+                put("detail", hosts.detail)
+            })
 
             val cert = Certificates.state()
             put("cert", buildJsonObject {
