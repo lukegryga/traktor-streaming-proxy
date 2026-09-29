@@ -143,20 +143,9 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </div>
     <div class="card">
       <h2>Certificate</h2>
-      <div class="row"><div class="grow"><div id="certHead">—</div>
-        <div class="sub" id="certDetail">—</div></div>
-        <span class="pill" id="certPill">—</span></div>
-      <div class="row"><div class="grow"><div>Valid for api.beatport.com</div>
-        <div class="sub" id="certSan">—</div></div><span class="pill" id="certSanPill">—</span></div>
-      <div class="row"><div class="grow"><div>Trusted by Windows</div>
-        <div class="sub">Schannel builds its chain from the Windows root stores</div></div>
-        <span class="pill" id="certTrustPill">—</span></div>
-      <div class="row"><div class="grow"><div>Stale certificates</div>
-        <div class="sub" id="certStale">—</div></div>
-        <button id="certPrune">Remove</button></div>
-      <div class="row"><div class="grow"><div>Regenerate</div>
-        <div class="sub">Creates a new key, trusts it, removes the old ones. Restart afterwards.</div></div>
-        <button class="danger" id="certNew">Regenerate</button></div>
+      <div class="row"><span class="grow sub" id="certLine">—</span>
+        <span class="pill" id="certPill">—</span>
+        <button id="certNew">Regenerate</button></div>
     </div>
     <div class="card">
       <h2>Traktor</h2>
@@ -281,22 +270,11 @@ function render(){
   $('ksState').textContent = s.keystorePresent ? 'keystore.jks found' : 'keystore.jks missing';
   $('ksState').style.color = s.keystorePresent ? 'var(--ok)' : 'var(--bad)';
   const c = s.cert;
-  const pill = (el, ok, yes, no) => { const e=$(el);
-    e.textContent = ok?yes:no; e.className = 'pill '+(ok?'ok':'bad'); };
-  $('certHead').textContent = c.present ? 'Certificate installed' : 'No certificate yet';
-  $('certDetail').textContent = c.present
-    ? (c.daysRemaining > 0 ? 'Expires in '+c.daysRemaining+' days' : 'Expired')
-      + (c.problem ? ' · '+c.problem : '')
-    : 'One will be generated on the next start';
-  pill('certPill', c.healthy, 'Working', c.present ? 'Needs attention' : 'Missing');
-  $('certSan').textContent = c.present ? (c.hostMatches
-    ? 'Subject alternative name matches' : 'Subject alternative name missing') : '—';
-  pill('certSanPill', c.hostMatches, 'Yes', 'No');
-  pill('certTrustPill', c.trusted, 'Trusted', 'Not trusted');
-  $('certStale').textContent = c.staleCount
-    ? c.staleCount+' old certificate'+(c.staleCount===1?'':'s')+' still trusted for this host'
-    : 'None';
-  $('certPrune').disabled = !c.staleCount;
+  $('certLine').textContent = c.healthy
+    ? 'Trusted for api.beatport.com until '+new Date(c.expiresAt).toLocaleDateString()
+    : c.problem;
+  $('certPill').textContent = c.healthy ? 'Working' : 'Needs attention';
+  $('certPill').className = 'pill '+(c.healthy ? 'ok' : 'bad');
 
   $('cacheState').textContent = 'Account '+(s.accountId||'unknown')+' · '+s.traktorCacheFiles+
     ' files · '+mb(s.traktorCacheBytes);
@@ -382,15 +360,11 @@ $('libClear').onclick = async () => {
 
 $('libFilter').oninput = () => { libPage = 0; drawLibrary(); };
 
-$('certPrune').onclick = async () => {
-  const r = await post('/api/certificate/prune', {}); toast(r.message); load();
-};
-
 $('certNew').onclick = async () => {
   const ok = await confirmDialog('Regenerate the certificate?',
-    'A new key pair is created and added to your trusted roots. Certificates for this host that are no longer used are removed.',
+    'A new key pair is created and trusted, and the one it replaces is removed.',
     ['Traktor keeps working once the app restarts',
-     'Removing from the machine store may need an elevated prompt',
+     'Removing a machine-store certificate may need an elevated prompt',
      'Your downloaded library is untouched']);
   if(!ok) return;
   toast('Generating...');

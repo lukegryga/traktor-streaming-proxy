@@ -93,17 +93,6 @@ object ControlPanel {
                     )
                 }
 
-                post("/api/certificate/prune") {
-                    val outcome = Certificates.removeStaleOnly()
-                    call.respondText(
-                        outcome.fold(
-                            { result(true, if (it > 0) "Removed $it stale certificates" else "Nothing stale to remove") },
-                            { result(false, it.message ?: "Failed") }
-                        ),
-                        ContentType.Application.Json
-                    )
-                }
-
                 post("/api/traktor/clear") {
                     val outcome = TraktorCache.clear()
                     call.respondText(
@@ -193,12 +182,7 @@ object ControlPanel {
             val cert = Certificates.state()
             put("cert", buildJsonObject {
                 put("present", cert.present)
-                put("subject", cert.subject ?: "")
                 put("expiresAt", cert.expiresAt ?: 0L)
-                put("daysRemaining", cert.daysRemaining ?: 0L)
-                put("hostMatches", cert.hostMatches)
-                put("trusted", cert.trusted)
-                put("staleCount", cert.staleCount)
                 put("healthy", cert.healthy)
                 put("problem", cert.problem ?: "")
             })

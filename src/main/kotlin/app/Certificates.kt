@@ -7,21 +7,18 @@ import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import javax.security.auth.x500.X500Principal
 
 private const val HOST = "api.beatport.com"
 private const val ALIAS = "foo"
 private const val PASSWORD = "changeit"
+// Ten years: this certificate is only ever trusted by the machine that generated it, so an expiry
+// short enough to need rotating would be a chore with no one to protect.
 private const val VALID_DAYS = 3650L
-private const val RENEW_WITHIN_DAYS = 30L
 
 data class CertificateState(
     val present: Boolean,
-    val subject: String?,
     val expiresAt: Long?,
-    val daysRemaining: Long?,
-    val hostMatches: Boolean,
-    val trusted: Boolean,
-    val staleCount: Int,
     val healthy: Boolean,
     val problem: String?
 )
@@ -38,44 +35,39 @@ object Certificates {
     private val crtFile = File("cert/server.crt")
 
     fun state(): CertificateState {
-        val cert = load()
-            ?: return CertificateState(
-                false, null, null, null, false, false, staleCertificates(null).size, false,
-                "No certificate yet"
-            )
-
-        val remaining = TimeUnit.MILLISECONDS.toDays(cert.notAfter.time - System.currentTimeMillis())
-        val hostMatches = subjectNames(cert).contains(HOST)
-        val trusted = isTrusted(cert)
-        val stale = staleCertificates(fingerprint(cert)).size
+        val cert = load() ?: return CertificateState(false, null, false, "No certificate yet")
 
         val problem = when {
-            !hostMatches -> "Certificate is not valid for $HOST"
-            remaining < 0 -> "Certificate expired"
-            !trusted -> "Not installed as a trusted root"
-            remaining < RENEW_WITHIN_DAYS -> "Expires in $remaining days"
+            !subjectNames(cert).contains(HOST) -> "Not valid for $HOST"
+            cert.notAfter.time < System.currentTimeMillis() -> "Expired"
+            !isTrusted(cert) -> "Not trusted by Windows"
             else -> null
         }
 
-        return CertificateState(
-            present = true,
-            subject = cert.subjectX500Principal.name,
-            expiresAt = cert.notAfter.time,
-            daysRemaining = remaining,
-            hostMatches = hostMatches,
-            trusted = trusted,
-            staleCount = stale,
-            healthy = problem == null,
-            problem = problem
-        )
+        return CertificateState(true, cert.notAfter.time, problem == null, problem)
     }
 
-    /** Provisions only when something is actually wrong, so a normal start touches nothing. */
+    /**
+     * Provisions only when something is actually wrong, so a normal start touches nothing.
+     *
+     * Old certificates are cleared here rather than at generation time. The keystore is read once
+     * when the server binds, so removing trust for what is currently being served breaks TLS until
+     * a restart; at startup nothing is serving yet.
+     */
     fun ensure(): Result<String> {
         val current = state()
-        if (current.healthy) return Result.success("Certificate is valid and trusted")
-        println("Certificate needs attention: ${current.problem}")
-        return regenerate()
+        val outcome = if (current.healthy) {
+            Result.success("Certificate is valid and trusted")
+        } else {
+            println("Certificate needs attention: ${current.problem}")
+            regenerate()
+        }
+
+        load()?.let { served ->
+            val removed = removeStale(fingerprint(served))
+            if (removed > 0) println("Removed $removed superseded certificate(s)")
+        }
+        return outcome
     }
 
     fun regenerate(): Result<String> = runCatching {
@@ -86,6 +78,9 @@ object Certificates {
                 domains = listOf(HOST)
                 daysValid = VALID_DAYS
                 keySizeInBits = 4096
+                // Without this ktor stamps CN=localhost, OU=Kotlin, O=JetBrains, which is both
+                // unidentifiable in certmgr and useless for finding our own old certificates.
+                subject = X500Principal("CN=$HOST")
             }
         }
         keystoreFile.outputStream().use { store.store(it, PASSWORD.toCharArray()) }
@@ -97,19 +92,13 @@ object Certificates {
             throw IllegalStateException("Generated certificate has no $HOST subject alternative name")
         }
 
-        val removed = removeStale(fingerprint(cert))
-        val installed = install(crtFile)
-        if (!installed) {
+        if (!install(crtFile)) {
             throw IllegalStateException("Generated the certificate but could not add it to the trusted roots")
         }
 
-        val suffix = if (removed > 0) ", removed $removed stale" else ""
-        "Generated and trusted a new certificate$suffix. Restart the app to serve it."
-    }
-
-    fun removeStaleOnly(): Result<Int> = runCatching {
-        val current = load()?.let { fingerprint(it) }
-        removeStale(current)
+        // The old certificate stays trusted until the next start, because it is the one still
+        // being served; ensure() clears it once this one takes over.
+        "New certificate trusted. Restart the app to start serving it."
     }
 
     private fun load(): X509Certificate? = runCatching {
@@ -134,29 +123,33 @@ object Certificates {
         return windowsRoots().any { fingerprint(it) == target }
     }
 
-    /** Anything claiming this host that is not the certificate currently being served. */
+    /**
+     * Matched on subject alternative name as well as subject: a certificate is valid for a host
+     * through its SAN, and ktor's default subject names neither the host nor this application.
+     */
     private fun staleCertificates(keepFingerprint: String?): List<X509Certificate> =
         windowsRoots().filter {
-            it.subjectX500Principal.name.contains(HOST, ignoreCase = true) &&
-                fingerprint(it) != keepFingerprint
+            val claimsHost = subjectNames(it).contains(HOST) ||
+                it.subjectX500Principal.name.contains(HOST, ignoreCase = true)
+            claimsHost && fingerprint(it) != keepFingerprint
         }
 
     private fun removeStale(keepFingerprint: String?): Int {
-        val targets = staleCertificates(keepFingerprint).map { sha1(it) }.toSet()
-        var removed = 0
-        targets.forEach { thumbprint ->
-            // The user store needs no elevation; the machine store is attempted in case an earlier
-            // certificate was installed there by hand, and simply fails when not running elevated.
-            val userStore = certutil("-delstore", "-user", "Root", thumbprint)
-            val machineStore = certutil("-delstore", "Root", thumbprint)
-            if (userStore || machineStore) {
-                removed++
-                println("Removed stale certificate $thumbprint")
-            } else {
-                println("Could not remove stale certificate $thumbprint; it may need an elevated prompt")
-            }
+        val before = staleCertificates(keepFingerprint).map { sha1(it) }.toSet()
+        before.forEach { thumbprint ->
+            // The user store needs no elevation; the machine store is attempted in case a
+            // certificate was installed there by hand, and fails when not running elevated.
+            certutil("-delstore", "-user", "Root", thumbprint)
+            certutil("-delstore", "Root", thumbprint)
         }
-        return removed
+
+        // Checked rather than inferred from the exit code: deleting from the user store reports
+        // success for a certificate that only exists in the machine store, and leaves it there.
+        val remaining = staleCertificates(keepFingerprint).map { sha1(it) }.toSet()
+        remaining.forEach {
+            println("Could not remove certificate $it; removing it from the machine store needs an elevated prompt")
+        }
+        return before.count { !remaining.contains(it) }
     }
 
     private fun install(file: File): Boolean {
