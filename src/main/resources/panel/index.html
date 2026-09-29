@@ -133,8 +133,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 
   <section id="settings" class="hide">
     <div class="card">
-      <h2>Installation</h2>
-      <div class="row"><div class="grow"><div>Certificate</div>
+      <h2 style="display:flex;align-items:center;justify-content:space-between">
+        <span>Installation</span>
+        <span class="sub" style="font-weight:400"><span class="dot" id="instDot"></span><span id="instText">—</span></span>
+      </h2>      <div class="row"><div class="grow"><div>Certificate</div>
         <div class="sub trunc" id="certLine">—</div></div>
         <span class="pill" id="certPill">—</span>
         <button id="certNew">Regenerate</button></div>
@@ -316,6 +318,10 @@ function render(){
   $('patchPill').className = 'pill ' + (patched ? 'ok' : p.status === 'UNPATCHED' ? 'warn' : 'bad')
     + (s.traktorFound ? '' : ' hide');
   $('patchFix').classList.toggle('hide', p.status !== 'UNPATCHED');
+
+  const ready = c.healthy && s.hosts.ok && p.status === 'PATCHED';
+  $('instDot').style.background = ready ? 'var(--ok)' : 'var(--warn)';
+  $('instText').textContent = ready ? 'Installed successfully' : 'Installation is not complete';
   const tFound = s.traktorFound, tSet = s.traktorConfigured, tValid = s.traktorPathValid;
   const tState = !tValid ? 'invalid' : !tFound ? 'missing' : tSet ? 'manual' : 'auto';
   $('traktorPill').textContent = {invalid:'Not a file', missing:'Not found', manual:'Set manually', auto:'Detected'}[tState];
