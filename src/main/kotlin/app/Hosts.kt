@@ -62,10 +62,15 @@ object Hosts {
         // Existing lines for the host are dropped rather than edited, so a wrong address and a
         // duplicate both end up as the one correct entry. Windows caches resolutions, so the
         // flush matters as much as the write.
+        // The entry is built here and embedded literally. A PowerShell escape such as `t means
+        // nothing inside single quotes and would be written to the file as typed.
+        val entry = "$TARGET\t$HOST"
+        val pattern = HOST.replace(".", "\\.")
+
         val script = """
             ${'$'}p = '${file.absolutePath.replace("'", "''")}'
-            ${'$'}keep = Get-Content ${'$'}p | Where-Object { ${'$'}_ -notmatch '$HOST' }
-            (${'$'}keep + '$TARGET`t$HOST') | Set-Content ${'$'}p -Encoding ASCII
+            ${'$'}keep = Get-Content ${'$'}p | Where-Object { ${'$'}_ -notmatch '$pattern' }
+            (${'$'}keep + '$entry') | Set-Content ${'$'}p -Encoding ASCII
             ipconfig /flushdns | Out-Null
         """.trimIndent()
 

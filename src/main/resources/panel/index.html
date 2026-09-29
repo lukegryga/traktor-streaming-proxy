@@ -146,6 +146,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </div>
     <div class="card">
       <h2>Traktor</h2>
+      <div class="row"><div class="grow"><div>License patch</div>
+        <div class="sub trunc" id="patchLine">—</div></div>
+        <span class="pill" id="patchPill">—</span>
+        <button id="patchFix" class="hide">Patch</button></div>
+      <div class="row"><div class="grow"><div>Traktor executable</div>
+        <div class="sub">Detected automatically; set it here if that fails</div></div>
+        <input id="traktorPath" class="mono" style="width:250px" placeholder="Not set"></div>
       <div class="row"><div class="grow">Searchable providers</div>
         <input id="searchable" placeholder="blank means all enabled" style="width:210px"></div>
       <div class="row"><div class="grow"><div>Beatport cache</div>
@@ -278,6 +285,16 @@ function render(){
 
   $('cacheState').textContent = 'Account '+(s.accountId||'unknown')+' · '+s.traktorCacheFiles+
     ' files · '+mb(s.traktorCacheBytes);
+  const p = s.patch;
+  const patched = p.status === 'PATCHED';
+  $('patchLine').textContent = p.path ? p.detail+' — '+p.path : p.detail;
+  $('patchPill').textContent = patched ? 'Patched'
+    : p.status === 'UNPATCHED' ? 'Not patched'
+    : p.status === 'NOT_FOUND' ? 'Not found' : 'Unknown build';
+  $('patchPill').className = 'pill '+(patched ? 'ok' : p.status === 'UNPATCHED' ? 'warn' : 'bad');
+  $('patchFix').classList.toggle('hide', p.status !== 'UNPATCHED');
+  if (document.activeElement !== $('traktorPath')) $('traktorPath').value = s.traktorPath;
+
   $('searchable').value = s.searchableSources;
   $('spotifyClientId').value = s.spotifyClientId;
   $('tidalClientId').value = s.tidalClientId;
@@ -359,6 +376,19 @@ $('libClear').onclick = async () => {
 };
 
 $('libFilter').oninput = () => { libPage = 0; drawLibrary(); };
+
+$('traktorPath').onchange = () => save({traktorPath: $('traktorPath').value});
+
+$('patchFix').onclick = async () => {
+  const ok = await confirmDialog('Patch Traktor?',
+    'Traktor checks the Beatport license with a platform specific key, and only the macOS one matches what this server sends. The embedded key is replaced in place.',
+    ['Traktor must be closed',
+     'A .backup copy is kept beside the executable',
+     'Needs an administrator prompt']);
+  if(!ok) return;
+  toast('Patching...');
+  const r = await post('/api/traktor/patch', {}); toast(r.message); load();
+};
 
 $('hostsFix').onclick = async () => {
   toast('Waiting for the administrator prompt...');

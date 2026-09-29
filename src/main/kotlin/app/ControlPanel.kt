@@ -93,6 +93,14 @@ object ControlPanel {
                     )
                 }
 
+                post("/api/traktor/patch") {
+                    val outcome = TraktorPatch.patchElevated()
+                    call.respondText(
+                        outcome.fold({ result(true, it) }, { result(false, it.message ?: "Failed") }),
+                        ContentType.Application.Json
+                    )
+                }
+
                 post("/api/hosts/fix") {
                     val outcome = Hosts.fix()
                     call.respondText(
@@ -159,6 +167,7 @@ object ControlPanel {
         body["spotifyClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.spotifyClientId = it }
         body["tidalClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientId = it }
         body["tidalClientSecret"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientSecret = it }
+        body["traktorPath"]?.jsonPrimitive?.contentOrNull?.let { Settings.traktorPath = it }
         body["searchableSources"]?.jsonPrimitive?.contentOrNull
             ?.let { Settings.searchableSources = it.split(",").filter { s -> s.isNotBlank() } }
         body["libraryLimitEnabled"]?.jsonPrimitive?.booleanOrNull?.let { Settings.libraryLimitEnabled = it }
@@ -183,6 +192,14 @@ object ControlPanel {
         return buildJsonObject {
             put("serverPort", Settings.serverPort)
             put("uiPort", Settings.uiPort)
+
+            val patch = TraktorPatch.state()
+            put("patch", buildJsonObject {
+                put("status", patch.status.name)
+                put("path", patch.path)
+                put("detail", patch.detail)
+            })
+            put("traktorPath", Settings.traktorPath)
 
             val hosts = Hosts.state()
             put("hosts", buildJsonObject {

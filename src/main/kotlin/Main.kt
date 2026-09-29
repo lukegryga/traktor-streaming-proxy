@@ -104,7 +104,16 @@ private fun executeSearch(q: String, hasMoreParameter: Boolean): List<TrackRespo
     }.flatten()
 }
 
-fun main() {
+fun main(args: Array<String>) {
+    // Handled before anything else initialises: this runs as a short lived elevated process whose
+    // only job is the write that Program Files refuses unelevated.
+    if (args.size == 2 && args[0] == "--patch") {
+        app.TraktorPatch.patch(File(args[1]))
+            .onSuccess { println(it) }
+            .onFailure { System.err.println(it.message) }
+        return
+    }
+
     BasicConfigurator.configure()
     Logging.configure()
 

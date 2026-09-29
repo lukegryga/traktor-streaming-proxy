@@ -39,6 +39,10 @@ object Settings {
         get() = prop.getProperty("tidal.clientSecret", "")
         set(value) = set("tidal.clientSecret", value.trim())
 
+    var traktorPath: String
+        get() = prop.getProperty("traktor.path", "")
+        set(value) = set("traktor.path", value.trim())
+
     val beatportAccountId: String
         get() = prop.getProperty("beatport.accountId", "")
 
