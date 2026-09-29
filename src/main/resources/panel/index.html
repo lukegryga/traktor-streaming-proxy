@@ -137,12 +137,6 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <input id="serverPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
       <div class="row"><div class="grow">Control panel port</div>
         <input id="uiPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
-      <div class="row"><div class="grow"><div>Use certificate from cert folder</div>
-        <div class="sub" id="ksState">—</div></div>
-        <button class="sw" id="useKeystore" role="switch" aria-checked="false"><span></span></button></div>
-    </div>
-    <div class="card">
-      <h2>Certificate</h2>
       <div class="row"><span class="grow sub" id="certLine">—</span>
         <span class="pill" id="certPill">—</span>
         <button id="certNew">Regenerate</button></div>
@@ -266,9 +260,6 @@ function render(){
   drawLibrary();
 
   $('serverPort').value = s.serverPort; $('uiPort').value = s.uiPort;
-  $('useKeystore').setAttribute('aria-checked', String(s.useKeystore));
-  $('ksState').textContent = s.keystorePresent ? 'keystore.jks found' : 'keystore.jks missing';
-  $('ksState').style.color = s.keystorePresent ? 'var(--ok)' : 'var(--bad)';
   const c = s.cert;
   $('certLine').textContent = c.healthy
     ? 'Trusted for api.beatport.com until '+new Date(c.expiresAt).toLocaleDateString()
@@ -379,7 +370,6 @@ $('cacheClear').onclick = async () => {
   const r = await post('/api/traktor/clear', {}); toast(r.message); load();
 };
 
-$('useKeystore').onclick = () => save({useKeystore: $('useKeystore').getAttribute('aria-checked')!=='true'});
 $('autostart').onclick = async () => { state = await post('/api/startup', {}); render(); toast('Saved'); };
 $('serverPort').onchange = () => save({serverPort: $('serverPort').value});
 $('uiPort').onchange = () => save({uiPort: $('uiPort').value});

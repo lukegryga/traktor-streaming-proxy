@@ -18,9 +18,6 @@ object Settings {
         get() = prop.getProperty("server.port", "443").toIntOrNull() ?: 443
         set(value) = set("server.port", value.toString())
 
-    var useKeystore: Boolean
-        get() = prop.getProperty("server.useKeystore", "false").toBoolean()
-        set(value) = set("server.useKeystore", value.toString())
 
     var enabledSources: List<String>
         get() = prop.getProperty("sources.enabled", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }

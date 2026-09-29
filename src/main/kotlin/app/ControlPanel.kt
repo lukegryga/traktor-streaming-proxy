@@ -148,7 +148,6 @@ object ControlPanel {
     private fun apply(body: JsonObject) {
         body["serverPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.serverPort = it }
         body["uiPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.uiPort = it }
-        body["useKeystore"]?.jsonPrimitive?.booleanOrNull?.let { Settings.useKeystore = it }
         body["spotifyClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.spotifyClientId = it }
         body["tidalClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientId = it }
         body["tidalClientSecret"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientSecret = it }
@@ -176,8 +175,6 @@ object ControlPanel {
         return buildJsonObject {
             put("serverPort", Settings.serverPort)
             put("uiPort", Settings.uiPort)
-            put("useKeystore", Settings.useKeystore)
-            put("keystorePresent", File("cert/keystore.jks").isFile)
 
             val cert = Certificates.state()
             put("cert", buildJsonObject {

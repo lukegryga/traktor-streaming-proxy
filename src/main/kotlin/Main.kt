@@ -120,18 +120,16 @@ fun main() {
     // Checked before the sources start, otherwise an interactive source login such as
     // Spotify's completes only to have the server die on the missing keystore afterwards.
     val serverPort = prop.getProperty("server.port", "443").toInt()
-    val useKeystore = prop.getProperty("server.useKeystore", "false").toBoolean()
     val keystoreFile = File("cert/keystore.jks")
-    if (useKeystore) {
-        // Provisioned here rather than by a setup script: without a trusted certificate for
-        // api.beatport.com, Traktor refuses the connection and nothing else the server does matters.
-        app.Certificates.ensure()
-            .onSuccess { println(it) }
-            .onFailure { System.err.println("Certificate setup failed: ${it.message}") }
-        if (!keystoreFile.exists()) {
-            System.err.println("No usable certificate at ${keystoreFile.absolutePath}; cannot serve HTTPS.")
-            return
-        }
+
+    // Provisioned here rather than by a setup script: without a trusted certificate for
+    // api.beatport.com, Traktor refuses the connection and nothing else the server does matters.
+    app.Certificates.ensure()
+        .onSuccess { println(it) }
+        .onFailure { System.err.println("Certificate setup failed: ${it.message}") }
+    if (!keystoreFile.exists()) {
+        System.err.println("No usable certificate at ${keystoreFile.absolutePath}; cannot serve HTTPS.")
+        return
     }
 
     prop.getProperty("sources.enabled", "")
@@ -156,36 +154,18 @@ fun main() {
     SourceManager.startAll()
 
     val alias = "foo"
-    var serverConfiguration: NettyApplicationEngine.Configuration.() -> Unit
-
-    if (useKeystore) {
-        val keystorePassword = "changeit"
-
-        val keyStore = KeyStore.getInstance("JKS").apply {
-            keystoreFile.inputStream().use {
-                load(it, keystorePassword.toCharArray())
-            }
-        }
-        serverConfiguration = {
-            sslConnector(
-                keyStore,
-                alias,
-                { keystorePassword.toCharArray() },
-                { keystorePassword.toCharArray() }
-            ) {
-                port = serverPort
-            }
-        }
-    } else {
-        serverConfiguration = {
-            sslConnector(buildKeyStore {
-                certificate(alias) {
-                    password = alias
-                    domains = listOf("api.beatport.com")
-                }
-            }, alias, { "".toCharArray() }, { alias.toCharArray() }) {
-                port = serverPort
-            }
+    val keystorePassword = "changeit"
+    val keyStore = KeyStore.getInstance("JKS").apply {
+        keystoreFile.inputStream().use { load(it, keystorePassword.toCharArray()) }
+    }
+    val serverConfiguration: NettyApplicationEngine.Configuration.() -> Unit = {
+        sslConnector(
+            keyStore,
+            alias,
+            { keystorePassword.toCharArray() },
+            { keystorePassword.toCharArray() }
+        ) {
+            port = serverPort
         }
     }
 
