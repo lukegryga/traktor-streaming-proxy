@@ -242,6 +242,13 @@ object ControlPanel {
                 put("detail", patch.detail)
             })
             put("traktorPath", Settings.traktorPath)
+            put("traktorConfigured", Settings.traktorPath.isNotBlank())
+            // Checked as a file rather than trusting the string: a path that exists as a folder,
+            // or no longer exists at all after an update, should not read as found.
+            put("traktorFound", patch.path.isNotBlank() && File(patch.path).isFile)
+            // Reported separately because locate() quietly falls back to detection when the
+            // configured path is unusable, which would otherwise look like the path was accepted.
+            put("traktorPathValid", Settings.traktorPath.isBlank() || File(Settings.traktorPath).isFile)
 
             val hosts = Hosts.state()
             put("hosts", buildJsonObject {

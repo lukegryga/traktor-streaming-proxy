@@ -146,10 +146,17 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div class="sub trunc" id="patchLine">—</div></div>
         <span class="pill" id="patchPill">—</span>
         <button id="patchFix" class="hide">Patch</button></div>
-      <div class="row"><div class="grow"><div>Traktor executable</div>
-        <div class="sub">Detected automatically; browse for it if that fails</div></div>
-        <input id="traktorPath" class="mono" style="width:210px" placeholder="Not set">
-        <button id="traktorBrowse">Browse</button></div>
+      <div class="row" style="display:block">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div class="grow"><div>Traktor executable</div>
+            <div class="sub trunc" id="traktorHint">—</div></div>
+          <span class="pill" id="traktorPill">—</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input id="traktorPath" class="mono grow" placeholder="Detected automatically; browse to override">
+          <button id="traktorBrowse">Browse</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <h2>Server</h2>      <div class="row"><div class="grow">Beatport port</div>
@@ -313,6 +320,16 @@ function render(){
     : p.status === 'NOT_FOUND' ? 'Not found' : 'Unknown build';
   $('patchPill').className = 'pill '+(patched ? 'ok' : p.status === 'UNPATCHED' ? 'warn' : 'bad');
   $('patchFix').classList.toggle('hide', p.status !== 'UNPATCHED');
+  const tFound = s.traktorFound, tSet = s.traktorConfigured, tValid = s.traktorPathValid;
+  const tState = !tValid ? 'invalid' : !tFound ? 'missing' : tSet ? 'manual' : 'auto';
+  $('traktorPill').textContent = {invalid:'Not a file', missing:'Not found', manual:'Set manually', auto:'Detected'}[tState];
+  $('traktorPill').className = 'pill ' + {invalid:'bad', missing:'bad', manual:'ok', auto:'off'}[tState];
+  $('traktorHint').textContent = {
+    invalid: tFound ? 'Not a file, so the detected one is being used: ' + p.path : 'That path is not a file',
+    missing: 'Browse for Traktor.exe',
+    manual: p.path,
+    auto: 'Found at ' + p.path
+  }[tState];
   if (document.activeElement !== $('traktorPath')) $('traktorPath').value = s.traktorPath;
 
   $('searchable').value = s.searchableSources;
