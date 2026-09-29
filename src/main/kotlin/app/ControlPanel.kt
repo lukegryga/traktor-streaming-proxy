@@ -50,6 +50,12 @@ object ControlPanel {
                     call.respondText(libraryPage(page, size, query), ContentType.Application.Json)
                 }
 
+                get("/api/browse") {
+                    val requested = call.request.queryParameters["path"].orEmpty()
+                    val filter = call.request.queryParameters["ext"].orEmpty().lowercase()
+                    call.respondText(browse(requested, filter), ContentType.Application.Json)
+                }
+
                 post("/api/settings") {
                     val body = json.parseToJsonElement(call.receiveText()) as JsonObject
                     apply(body)
@@ -139,6 +145,42 @@ object ControlPanel {
             }
         }.start(wait = false)
         println("Control panel on http://127.0.0.1:$port")
+    }
+
+    /**
+     * Lists names only, never contents. A browser cannot hand back a real path - the file input
+     * deliberately hides it - so picking a file has to be done against the server's own view.
+     */
+    private fun browse(requested: String, extension: String): String {
+        val here = requested.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.isDirectory }
+
+        val entries = if (here == null) {
+            File.listRoots().orEmpty().toList()
+        } else {
+            here.listFiles().orEmpty().sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+        }
+
+        return buildJsonObject {
+            put("path", here?.absolutePath ?: "")
+            put("parent", here?.parentFile?.absolutePath ?: "")
+            put("atRoot", here == null)
+            put("entries", buildJsonArray {
+                entries.forEach { entry ->
+                    val isDir = entry.isDirectory
+                    val matches = extension.isBlank() || entry.name.lowercase().endsWith(extension)
+                    if (!isDir && !matches) return@forEach
+                    // Hidden and system entries are skipped: they are noise here, and some throw
+                    // on listing, which would break the whole page.
+                    if (here != null && entry.isHidden) return@forEach
+                    add(buildJsonObject {
+                        put("name", entry.name.ifBlank { entry.absolutePath })
+                        put("path", entry.absolutePath)
+                        put("dir", isDir)
+                        put("bytes", if (isDir) 0L else entry.length())
+                    })
+                }
+            })
+        }.toString()
     }
 
     private fun result(ok: Boolean, message: String) =

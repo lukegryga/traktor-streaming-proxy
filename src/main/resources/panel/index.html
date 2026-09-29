@@ -82,9 +82,36 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-tab="providers">Providers</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="library">Library</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="installation">Installation</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="logs">Logs</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="settings">Settings</button>
   </div>
+
+  <section id="installation" class="hide">
+    <div class="card">
+      <h2>Certificate</h2>
+      <div class="row"><span class="grow sub" id="certLine">—</span>
+        <span class="pill" id="certPill">—</span>
+        <button id="certNew">Regenerate</button></div>
+    </div>
+    <div class="card">
+      <h2>Hosts file</h2>
+      <div class="row"><span class="grow sub" id="hostsLine">—</span>
+        <span class="pill" id="hostsPill">—</span>
+        <button id="hostsFix" class="hide">Fix</button></div>
+    </div>
+    <div class="card">
+      <h2>Traktor</h2>
+      <div class="row"><div class="grow"><div>License patch</div>
+        <div class="sub trunc" id="patchLine">—</div></div>
+        <span class="pill" id="patchPill">—</span>
+        <button id="patchFix" class="hide">Patch</button></div>
+      <div class="row"><div class="grow"><div>Executable</div>
+        <div class="sub">Detected automatically; browse for it if that fails</div></div>
+        <input id="traktorPath" class="mono" style="width:210px" placeholder="Not set">
+        <button id="traktorBrowse">Browse</button></div>
+    </div>
+  </section>
 
   <section id="providers"><div class="card" id="provList"></div></section>
 
@@ -137,22 +164,11 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <input id="serverPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
       <div class="row"><div class="grow">Control panel port</div>
         <input id="uiPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
-      <div class="row"><span class="grow sub" id="certLine">—</span>
-        <span class="pill" id="certPill">—</span>
-        <button id="certNew">Regenerate</button></div>
-      <div class="row"><span class="grow sub" id="hostsLine">—</span>
-        <span class="pill" id="hostsPill">—</span>
-        <button id="hostsFix" class="hide">Fix</button></div>
     </div>
+
     <div class="card">
       <h2>Traktor</h2>
-      <div class="row"><div class="grow"><div>License patch</div>
-        <div class="sub trunc" id="patchLine">—</div></div>
-        <span class="pill" id="patchPill">—</span>
-        <button id="patchFix" class="hide">Patch</button></div>
-      <div class="row"><div class="grow"><div>Traktor executable</div>
-        <div class="sub">Detected automatically; set it here if that fails</div></div>
-        <input id="traktorPath" class="mono" style="width:250px" placeholder="Not set"></div>
+
       <div class="row"><div class="grow">Searchable providers</div>
         <input id="searchable" placeholder="blank means all enabled" style="width:210px"></div>
       <div class="row"><div class="grow"><div>Beatport cache</div>
@@ -183,6 +199,18 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   </section>
 </div>
 
+<dialog id="browse"><div class="dlg" style="padding-bottom:8px">
+  <h3>Choose a file</h3>
+  <div class="sub mono trunc" id="brPath" style="margin-bottom:8px">—</div>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button id="brUp">Up</button><button id="brRoots">Drives</button>
+    <button id="brPick" class="hide primary">Use this folder</button>
+  </div>
+</div>
+<div id="brList" style="max-height:320px;overflow:auto;border-top:1px solid var(--line)"></div>
+<div class="acts" style="padding-top:14px"><button id="brCancel">Cancel</button></div>
+</dialog>
+
 <dialog id="dlg"><div class="dlg">
   <h3 id="dlgTitle">Confirm</h3>
   <p class="sub" id="dlgBody"></p>
@@ -212,7 +240,7 @@ function ago(ts){ if(!ts) return 'never played';
 
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x===t)));
-  ['providers','library','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
+  ['providers','library','installation','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
   if(t.dataset.tab==='logs') loadLogs();
 });
 
@@ -360,7 +388,7 @@ const applyLimit = () => { const v = parseInt($('limitVal').value,10);
 $('limitVal').onchange = applyLimit; $('limitUnit').onchange = applyLimit;
 
 $('libMove').onclick = async () => {
-  const path = prompt('New library folder', state.libraryPath);
+  const path = await choosePath(state.libraryPath, '', true);
   if(!path || path===state.libraryPath) return;
   toast('Moving files...');
   const r = await post('/api/library/move', {path});
@@ -378,6 +406,53 @@ $('libClear').onclick = async () => {
 $('libFilter').oninput = () => { libPage = 0; drawLibrary(); };
 
 $('traktorPath').onchange = () => save({traktorPath: $('traktorPath').value});
+
+let brResolve = null, brExt = '', brFolders = false, brHere = '';
+
+async function brOpen(path){
+  const r = await fetch('/api/browse?ext='+encodeURIComponent(brExt)+'&path='+encodeURIComponent(path||''));
+  const d = await r.json();
+  brHere = d.atRoot ? '' : d.path;
+  $('brPath').textContent = d.atRoot ? 'This computer' : d.path;
+  $('brPick').classList.toggle('hide', !brFolders || d.atRoot);
+  $('brUp').disabled = d.atRoot;
+  $('brUp').dataset.parent = d.parent || '';
+  $('brList').innerHTML = d.entries.length ? d.entries.map(e =>
+    '<div class="row" style="cursor:pointer" data-go="'+(e.dir?'1':'0')+'" data-path="'+
+    e.path.replace(/"/g,'&quot;')+'">'+
+    '<span class="grow trunc">'+(e.dir?'📁 ':'')+e.name+'</span>'+
+    (e.dir?'':'<span class="sub">'+mb(e.bytes)+'</span>')+'</div>'
+  ).join('') : '<div class="row"><span class="sub">Nothing here.</span></div>';
+
+  document.querySelectorAll('[data-path]').forEach(el => el.onclick = () => {
+    if(el.dataset.go === '1') brOpen(el.dataset.path);
+    else { $('browse').close(); if(brResolve) brResolve(el.dataset.path); }
+  });
+}
+
+function choosePath(startAt, ext, folders){
+  brExt = ext || '';
+  brFolders = !!folders;
+  return new Promise(resolve => {
+    brResolve = resolve;
+    $('browse').showModal();
+    brOpen(startAt || '');
+  });
+}
+
+$('brPick').onclick = () => { $('browse').close(); if(brResolve) brResolve(brHere); };
+
+$('brUp').onclick = () => brOpen($('brUp').dataset.parent);
+$('brRoots').onclick = () => brOpen('');
+$('brCancel').onclick = () => { $('browse').close(); if(brResolve) brResolve(null); };
+
+$('traktorBrowse').onclick = async () => {
+  const start = state.patch.path ? state.patch.path.replace(/\\[^\\]*$/, '') : '';
+  const picked = await choosePath(start, '.exe', false);
+  if(!picked) return;
+  $('traktorPath').value = picked;
+  save({traktorPath: picked});
+};
 
 $('patchFix').onclick = async () => {
   const ok = await confirmDialog('Patch Traktor?',
