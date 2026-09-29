@@ -168,8 +168,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div class="card">
       <h2>Traktor</h2>
 
-      <div class="row"><div class="grow">Searchable providers</div>
-        <input id="searchable" placeholder="blank means all enabled" style="width:210px"></div>
+
       <div class="row"><div class="grow"><div>Beatport cache</div>
         <div class="sub" id="cacheState">—</div></div>
         <button class="danger" id="cacheClear">Clear</button></div>
@@ -237,11 +236,20 @@ function ago(ts){ if(!ts) return 'never played';
   if(s<90) return 'just played'; if(s<5400) return Math.round(s/60)+' min ago';
   if(s<172800) return Math.round(s/3600)+' h ago'; return Math.round(s/86400)+' d ago'; }
 
+const TABS = ['providers','library','logs','settings'];
+function selectTab(name){
+  if(!TABS.includes(name)) return;
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x.dataset.tab===name)));
+  TABS.forEach(s => $(s).classList.toggle('hide', s!==name));
+  if(name==='logs') loadLogs();
+}
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x===t)));
-  ['providers','library','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
-  if(t.dataset.tab==='logs') loadLogs();
+  location.hash = t.dataset.tab;
+  selectTab(t.dataset.tab);
 });
+// The tray links straight here when the install is incomplete, and every fix is on one tab.
+selectTab(location.hash.replace('#','') || 'providers');
+window.addEventListener('hashchange', () => selectTab(location.hash.replace('#','') || 'providers'));
 
 function confirmDialog(title, body, items){
   return new Promise(resolve => {
@@ -275,9 +283,13 @@ function render(){
       : 'No sign-in required');
     const btn = p.needsSignIn
       ? '<button data-signout="'+p.name+'"'+(p.signedIn?'':' disabled')+'>Sign out</button>' : '';
+    const order = p.enabled
+      ? '<button data-move="'+p.name+'" data-up="1" title="Search earlier"'+(p.first?' disabled':'')+'>↑</button>'+
+        '<button data-move="'+p.name+'" data-up="0" title="Search later"'+(p.last?' disabled':'')+'>↓</button>'
+      : '';
     return '<div class="row"><div class="grow"><div style="text-transform:capitalize">'+p.name+'</div>'+
       '<div class="sub trunc">'+detail+'</div></div>'+
-      '<span class="pill '+cls+'">'+label+'</span>'+btn+
+      '<span class="pill '+cls+'">'+label+'</span>'+order+btn+
       '<button class="sw" role="switch" aria-checked="'+p.enabled+'" data-prov="'+p.name+'"><span></span></button></div>';
   }).join('');
 
@@ -334,7 +346,6 @@ function render(){
   }[tState];
   if (document.activeElement !== $('traktorPath')) $('traktorPath').value = s.traktorPath;
 
-  $('searchable').value = s.searchableSources;
   $('spotifyClientId').value = s.spotifyClientId;
   $('tidalClientId').value = s.tidalClientId;
   $('tidalClientSecret').placeholder = s.tidalClientSecret ? 'unchanged' : 'Not set';
@@ -342,6 +353,10 @@ function render(){
   $('quality').value = String(s.veryHighQuality); $('logLevel').value = s.logLevel;
 
   document.querySelectorAll('[data-prov]').forEach(b => b.onclick = () => toggleProvider(b.dataset.prov));
+  document.querySelectorAll('[data-move]').forEach(b => b.onclick = async () => {
+    const r = await post('/api/provider/move', {name: b.dataset.move, up: b.dataset.up === '1'});
+    toast(r.message); load();
+  });
   document.querySelectorAll('[data-signout]').forEach(b => b.onclick = async () => {
     const r = await post('/api/signout', {name:b.dataset.signout}); toast(r.message); load();
   });
@@ -503,7 +518,6 @@ $('cacheClear').onclick = async () => {
 $('autostart').onclick = async () => { state = await post('/api/startup', {}); render(); toast('Saved'); };
 $('serverPort').onchange = () => save({serverPort: $('serverPort').value});
 $('uiPort').onchange = () => save({uiPort: $('uiPort').value});
-$('searchable').onchange = () => save({searchableSources: $('searchable').value});
 $('spotifyClientId').onchange = () => save({spotifyClientId: $('spotifyClientId').value});
 $('tidalClientId').onchange = () => save({tidalClientId: $('tidalClientId').value});
 $('tidalClientSecret').onchange = () => { if($('tidalClientSecret').value)

@@ -1,5 +1,6 @@
 package sources
 
+import com.google.protobuf.InvalidProtocolBufferException
 import app.Browser
 import app.Library
 import app.OAuthCallback
@@ -53,7 +54,17 @@ class Spotify : ISource {
         get() = "Spotify"
 
     init {
-        createSession()
+        try {
+            createSession()
+        } catch (ex: InvalidProtocolBufferException) {
+            // librespot parses login5's response without checking the status, so an error page
+            // from a rate limit or an outage arrives as a protobuf parse failure.
+            throw IllegalStateException(
+                "Spotify's login endpoint returned something unexpected, which usually means it is " +
+                    "rate limiting this device. It clears on its own; try again in a few minutes.",
+                ex
+            )
+        }
         // Done at startup so both browser logins happen together rather than on a later request.
         webAuth.token()
     }

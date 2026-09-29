@@ -5,10 +5,12 @@ import org.schabi.newpipe.extractor.*
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.Localization
-import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.MUSIC_SONGS
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.VIDEOS
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.net.URL
 import java.util.*
+
+private const val SEARCH_RESULTS = 10
 
 class Youtube : ISource {
 
@@ -45,8 +47,16 @@ class Youtube : ISource {
         return emptyList()
     }
 
+    /**
+     * Videos rather than music songs. The song catalogue only holds what labels distributed, so
+     * edits, bootlegs and mashups - the reason to reach for YouTube rather than Spotify - are
+     * absent from it, and Spotify already covers what it does hold.
+     *
+     * Asking for both filters at once does not work: NewPipe runs a music search and ignores
+     * VIDEOS entirely, which reads as the change having had no effect.
+     */
     override fun query(query: String, reset: Boolean): List<Track> {
-        val extractor = ServiceList.YouTube.getSearchExtractor(query, listOf(MUSIC_SONGS), "")
+        val extractor = ServiceList.YouTube.getSearchExtractor(query, listOf(VIDEOS), "")
         val itemsPage = if (!reset && next.containsKey(query)) {
             if (next[query] == null)
                 return emptyList()
@@ -56,7 +66,7 @@ class Youtube : ISource {
             extractor.initialPage
         }
         next[query] = itemsPage.nextPage
-        return extractItems(itemsPage.items)
+        return extractItems(itemsPage.items).take(SEARCH_RESULTS)
     }
 
     override fun download(id: String): ByteArray {

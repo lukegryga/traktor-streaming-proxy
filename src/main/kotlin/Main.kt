@@ -86,20 +86,20 @@ fun processTracks(id: Int, tracks: List<Track>): List<TrackResponse> {
  * @return A list of processed track responses.
  */
 private fun executeSearch(q: String, hasMoreParameter: Boolean): List<TrackResponse> {
-    var query = q
-    val enabledSources = if (q.contains(":")) {
-        val (sourceName, actualQuery) = q.split(":", limit = 2)
-        query = actualQuery
-        listOf(allSources[sourceName])
-    } else {
-        prop.getProperty("search.enabled", "").split(",").map { name -> allSources[name] }
-    }
+    // Only a prefix that names a real source scopes the search. Splitting on any colon turned
+    // "Jeux Interdits: Spanish Romance" into a search of every source for " Spanish Romance".
+    val prefix = q.substringBefore(':', "").trim().lowercase()
+    val scoped = allSources[prefix]
+    val query = if (scoped != null) q.substringAfter(':').trim() else q
 
     return sources.mapIndexed { id, source ->
-        if (enabledSources.contains(null) || source::class.java in enabledSources) {
-            processTracks(id, source.query(query, !hasMoreParameter))
-        } else {
+        if (scoped != null && source::class.java != scoped) {
             emptyList()
+        } else {
+            // Traktor shows one merged list, so without this there is no way to tell which
+            // source a result came from.
+            processTracks(id, source.query(query, !hasMoreParameter))
+                .map { it.copy(name = "[${source.name}] ${it.name}") }
         }
     }.flatten()
 }

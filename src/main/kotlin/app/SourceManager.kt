@@ -1,8 +1,12 @@
 package app
 
 import sources.ISource
+import java.io.File
 
 enum class State { IDLE, STARTING, READY, FAILED }
+
+/** What a status means to a user, and the colour every part of the UI shows it in. */
+enum class Health { OK, WARN, ERROR }
 
 data class SourceStatus(val name: String, val state: State, val detail: String? = null)
 
@@ -24,7 +28,25 @@ object SourceManager {
 
     fun onChange(listener: () -> Unit) = synchronized(listeners) { listeners.add(listener); Unit }
 
+    /**
+     * Spotify is the only source with an interactive login, and the credentials it stores are the
+     * only evidence of one. Kept here rather than in each UI so the tray and the panel cannot
+     * disagree about whether a source is signed in.
+     */
+    private val credentialFiles = mapOf("spotify" to File("data/credentials.json"))
+
     fun statuses(): List<SourceStatus> = synchronized(statuses) { statuses.values.toList() }
+
+    fun requiresSignIn(name: String) = credentialFiles.containsKey(name)
+
+    fun isSignedIn(name: String) = credentialFiles[name]?.isFile ?: true
+
+    /** Ready but unauthenticated is a warning, not success: it serves nothing until the login is done. */
+    fun health(status: SourceStatus) = when {
+        status.state == State.FAILED -> Health.ERROR
+        status.state == State.READY && isSignedIn(status.name) -> Health.OK
+        else -> Health.WARN
+    }
 
     fun register(name: String, type: Class<out ISource>) {
         registry[name] = type
@@ -56,7 +78,12 @@ object SourceManager {
             println("$name is ready")
             set(SourceStatus(name, State.READY))
         } catch (ex: Throwable) {
-            val cause = generateSequence(ex) { it.cause }.last()
+            // The outermost cause carrying a message, not the innermost: sources are constructed
+            // reflectively, so the top is an empty InvocationTargetException, while the bottom is
+            // whatever low level failure a source has already explained in its own terms.
+            val cause = generateSequence(ex) { it.cause }
+                .firstOrNull { it !is java.lang.reflect.InvocationTargetException && !it.message.isNullOrBlank() }
+                ?: generateSequence(ex) { it.cause }.last()
             // Logged as well as shown in the tray: a tooltip cannot carry a stack trace, and an
             // interactive login has plenty of ways to fail that need one to diagnose.
             System.err.println("$name failed to initialise")

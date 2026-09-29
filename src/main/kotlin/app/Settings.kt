@@ -23,9 +23,6 @@ object Settings {
         get() = prop.getProperty("sources.enabled", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
         set(value) = set("sources.enabled", value.joinToString(","))
 
-    var searchableSources: List<String>
-        get() = prop.getProperty("search.enabled", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        set(value) = set("search.enabled", value.joinToString(","))
 
     var spotifyClientId: String
         get() = prop.getProperty("spotify.clientId", "")

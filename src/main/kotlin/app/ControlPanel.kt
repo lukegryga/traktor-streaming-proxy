@@ -70,6 +70,14 @@ object ControlPanel {
                     call.respondText(setProvider(name, enabled), ContentType.Application.Json)
                 }
 
+                post("/api/provider/move") {
+                    val body = json.parseToJsonElement(call.receiveText()) as JsonObject
+                    val name = body["name"]?.jsonPrimitive?.contentOrNull
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, "name required")
+                    val up = body["up"]?.jsonPrimitive?.booleanOrNull ?: true
+                    call.respondText(moveProvider(name, up), ContentType.Application.Json)
+                }
+
                 post("/api/library/delete") {
                     val body = json.parseToJsonElement(call.receiveText()) as JsonObject
                     val id = body["trackId"]?.jsonPrimitive?.contentOrNull
@@ -203,6 +211,26 @@ object ControlPanel {
         )
     }
 
+    /**
+     * Search asks the sources in this order and concatenates, so first here is first in Traktor.
+     * The order is also what genre and playlist ids are derived from, hence the same cache clear
+     * as enabling or disabling one.
+     */
+    private fun moveProvider(name: String, up: Boolean): String {
+        val order = Settings.enabledSources.toMutableList()
+        val at = order.indexOf(name)
+        val to = if (up) at - 1 else at + 1
+        if (at < 0 || to !in order.indices) return result(false, "Cannot move it any further")
+
+        order[at] = order[to].also { order[to] = order[at] }
+        Settings.enabledSources = order
+
+        return TraktorCache.clear().fold(
+            { result(true, "Reordered. Restart the app, then Traktor.") },
+            { result(false, "Reordered, but ${it.message}") }
+        )
+    }
+
     private fun apply(body: JsonObject) {
         body["serverPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.serverPort = it }
         body["uiPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.uiPort = it }
@@ -210,8 +238,6 @@ object ControlPanel {
         body["tidalClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientId = it }
         body["tidalClientSecret"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientSecret = it }
         body["traktorPath"]?.jsonPrimitive?.contentOrNull?.let { Settings.traktorPath = it }
-        body["searchableSources"]?.jsonPrimitive?.contentOrNull
-            ?.let { Settings.searchableSources = it.split(",").filter { s -> s.isNotBlank() } }
         body["libraryLimitEnabled"]?.jsonPrimitive?.booleanOrNull?.let { Settings.libraryLimitEnabled = it }
         body["libraryLimitBytes"]?.jsonPrimitive?.longOrNull?.let { Settings.libraryLimitBytes = it }
         body["veryHighQuality"]?.jsonPrimitive?.booleanOrNull?.let { Settings.veryHighQuality = it }
@@ -267,7 +293,6 @@ object ControlPanel {
             put("spotifyClientId", Settings.spotifyClientId)
             put("tidalClientId", Settings.tidalClientId)
             put("tidalClientSecret", if (Settings.tidalClientSecret.isBlank()) "" else "********")
-            put("searchableSources", Settings.searchableSources.joinToString(","))
             put("veryHighQuality", Settings.veryHighQuality)
             put("logLevel", Settings.logLevel)
             put("autostart", Startup.isEnabled())
@@ -280,15 +305,18 @@ object ControlPanel {
             put("traktorCacheBytes", cacheBytes)
             put("traktorRunning", TraktorCache.isTraktorRunning())
 
+            val ordered = (Settings.enabledSources + listOf("spotify", "youtube", "tidal")).distinct()
             put("providers", buildJsonArray {
-                listOf("spotify", "youtube", "tidal").forEach { name ->
+                ordered.forEachIndexed { position, name ->
                     add(buildJsonObject {
                         put("name", name)
                         put("enabled", Settings.enabledSources.contains(name))
                         put("state", statuses[name]?.state?.name ?: "IDLE")
                         put("detail", statuses[name]?.detail ?: "")
-                        put("signedIn", name == "spotify" && File("data/credentials.json").isFile)
-                        put("needsSignIn", name == "spotify")
+                        put("signedIn", SourceManager.isSignedIn(name))
+                        put("needsSignIn", SourceManager.requiresSignIn(name))
+                        put("first", position == 0)
+                        put("last", position == Settings.enabledSources.size - 1)
                     })
                 }
             })
