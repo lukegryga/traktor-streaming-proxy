@@ -11,15 +11,12 @@ import java.util.concurrent.TimeUnit
 object Elevate {
 
     fun run(args: List<String>, timeoutSeconds: Long = 120): Boolean = runCatching {
-        val home = File(System.getProperty("java.home"), "bin/javaw.exe")
-        val javaw = if (home.isFile) home.absolutePath else "javaw"
-        val appDir = File(System.getProperty("user.dir")).absolutePath
+        val (executable, leading) = relaunch()
+        val arguments = (leading + args).joinToString(",") { "'${it.quoted()}'" }
 
-        val arguments = (listOf("-cp", "$appDir\\lib\\*", "MainKt") + args)
-            .joinToString(",") { "'${it.replace("'", "''")}'" }
-
-        val command = "Start-Process '${javaw.replace("'", "''")}' -Verb RunAs -WindowStyle Hidden -Wait " +
-            "-WorkingDirectory '${appDir.replace("'", "''")}' -ArgumentList $arguments"
+        val command = "Start-Process '${executable.quoted()}' -Verb RunAs -WindowStyle Hidden -Wait " +
+            "-WorkingDirectory '${AppPaths.appDir.absolutePath.quoted()}'" +
+            if (arguments.isEmpty()) "" else " -ArgumentList $arguments"
 
         val proc = ProcessBuilder("powershell", "-NoProfile", "-Command", command)
             .redirectErrorStream(true)
@@ -34,4 +31,19 @@ object Elevate {
         println("Could not start an elevated process: ${it.message}")
         false
     }
+
+    /**
+     * A packaged build starts through its own launcher, which already knows where its runtime and
+     * jars are. Only an unpackaged one has to spell the JVM invocation out, and there the jars sit
+     * in lib/ next to the scripts.
+     */
+    private fun relaunch(): Pair<String, List<String>> {
+        AppPaths.launcher?.takeIf { AppPaths.packaged }?.let { return it.absolutePath to emptyList() }
+
+        val home = File(System.getProperty("java.home"), "bin/javaw.exe")
+        val javaw = if (home.isFile) home.absolutePath else "javaw"
+        return javaw to listOf("-cp", "${AppPaths.appDir.absolutePath}\\lib\\*", "MainKt")
+    }
+
+    private fun String.quoted() = replace("'", "''")
 }

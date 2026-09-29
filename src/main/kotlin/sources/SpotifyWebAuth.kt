@@ -37,7 +37,7 @@ class SpotifyWebAuth {
         ?: throw IllegalStateException("spotify.clientId is missing from config.properties")
 
     // Beside credentials.json so the same volume keeps both logins across container rebuilds.
-    private val refreshTokenFile = File("data/spotify-refresh-token")
+    private val refreshTokenFile = app.AppPaths.dataFile("data/spotify-refresh-token")
 
     private var accessToken: String? = null
     private var expiresAt: Long = 0

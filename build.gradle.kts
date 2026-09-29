@@ -71,3 +71,124 @@ tasks.named<org.gradle.jvm.application.tasks.CreateStartScripts>("startScripts")
         )
     }
 }
+
+// Packaging -------------------------------------------------------------------------------------
+
+version = "1.0.0"
+
+val appName = "TraktorProxy"
+val appVendor = "traktor-streaming-proxy"
+val appDescription = "Stream Spotify, YouTube and Tidal in Traktor DJ"
+
+// The Start menu folder the shortcut goes in, so it reads as a name there rather than as the
+// repository slug the vendor field carries.
+val appMenuGroup = "Traktor Streaming Proxy"
+
+// Identifies the product across versions: an installer with a different one installs beside the
+// old app instead of replacing it, so this must never change.
+val upgradeUuid = "8f2e3c14-6b9d-4a57-9e21-0d5c7a8b4f63"
+
+val imageDir = layout.buildDirectory.dir("jpackage/image")
+val installerDir = layout.buildDirectory.dir("jpackage/installer")
+
+val jpackageExe: String = File(System.getProperty("java.home"), "bin/jpackage.exe")
+    .takeIf { it.isFile }?.absolutePath ?: "jpackage"
+
+/**
+ * jpackage shells out to WiX's candle and light to build an installer, and finds them on PATH
+ * only. The toolset does not put itself there, so the build locates it instead of asking everyone
+ * who clones this to edit their environment.
+ */
+fun wixBin(): File? = listOf(File("C:/Program Files (x86)"), File("C:/Program Files"))
+    .asSequence()
+    .flatMap { root ->
+        root.listFiles { f: File -> f.isDirectory && f.name.startsWith("WiX Toolset") }
+            .orEmpty().asSequence()
+    }
+    .map { File(it, "bin") }
+    .firstOrNull { File(it, "candle.exe").isFile }
+
+val jpackageImage by tasks.registering(Exec::class) {
+    group = "distribution"
+    description = "Builds a self contained Windows application image with its own runtime."
+    dependsOn(tasks.named("installDist"))
+
+    val input = layout.buildDirectory.dir("install/traktor-streaming-proxy/lib")
+    val icon = layout.projectDirectory.file("src/main/resources/traktor-forwarder.ico")
+    // Read from the jar task rather than spelled out: the name carries the version, so any
+    // version bump would otherwise leave jpackage looking for a jar that is no longer there.
+    val mainJar = tasks.named<Jar>("jar").flatMap { it.archiveFileName }.get()
+
+    inputs.dir(input)
+    inputs.file(icon)
+    outputs.dir(imageDir.map { it.dir(appName) })
+
+    // jpackage refuses to write over an existing image rather than replacing it.
+    doFirst { delete(imageDir) }
+
+    commandLine(
+        jpackageExe,
+        "--type", "app-image",
+        "--name", appName,
+        "--app-version", version.toString(),
+        "--vendor", appVendor,
+        "--description", appDescription,
+        "--input", input.get().asFile.absolutePath,
+        "--main-jar", mainJar,
+        "--main-class", "MainKt",
+        "--icon", icon.asFile.absolutePath,
+        "--dest", imageDir.get().asFile.absolutePath,
+        // No module is dropped here. librespot, Netty and the NewPipe extractor all load classes
+        // reflectively, so a module list computed from the bytecode would be missing whatever only
+        // reflection reaches, and the failure would come at runtime rather than at build time.
+        //
+        // --compress is left off deliberately. It takes the installed image from 148MB to 102MB,
+        // but a zip compressed runtime is already dense, so the installer cannot squeeze it again
+        // and grows from 71MB to 81MB. The download is the thing that ships, so disk loses.
+        "--jlink-options", "--strip-debug --no-header-files --no-man-pages"
+    )
+}
+
+val jpackageInstaller by tasks.registering(Exec::class) {
+    group = "distribution"
+    description = "Builds the single file Windows installer. Needs the WiX Toolset."
+    dependsOn(jpackageImage)
+
+    outputs.dir(installerDir)
+
+    doFirst {
+        val wix = wixBin() ?: throw GradleException(
+            "The WiX Toolset was not found. Install it with: winget install -e --id WiXToolset.WiXToolset"
+        )
+        environment("PATH", "${wix.absolutePath};${System.getenv("PATH")}")
+        delete(installerDir)
+        mkdir(installerDir)
+    }
+
+    commandLine(
+        jpackageExe,
+        "--type", "exe",
+        "--name", appName,
+        "--app-version", version.toString(),
+        "--vendor", appVendor,
+        "--description", appDescription,
+        // Built from the image rather than from the jars again, so what is tested is what ships.
+        "--app-image", imageDir.get().asFile.resolve(appName).absolutePath,
+        "--dest", installerDir.get().asFile.absolutePath,
+        "--win-upgrade-uuid", upgradeUuid,
+        // Installs into Program Files, which costs one prompt at install time and buys the
+        // separation the app is built around: the install folder is read only and the data folder
+        // under %LOCALAPPDATA% survives both an uninstall and an upgrade.
+        //
+        // A per-user install cannot have that here. It defaults to %LOCALAPPDATA%\TraktorProxy,
+        // the data folder itself, so the app would keep its settings, certificate and downloaded
+        // library inside its own install directory and lose the lot on uninstall. Moving it to
+        // Programs\TraktorProxy is what MSI wants for a per-user install, but WiX then fails
+        // validation with ICE64 over the Programs folder it has no instruction to remove.
+        //
+        // The prompt is not a real cost: patching Traktor already asks for one.
+        "--win-menu",
+        "--win-menu-group", appMenuGroup,
+        "--win-shortcut-prompt"
+    )
+}

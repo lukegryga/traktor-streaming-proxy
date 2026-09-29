@@ -123,6 +123,11 @@ object ControlPanel {
                     )
                 }
 
+                post("/api/ffmpeg/install") {
+                    val (started, detail) = Ffmpeg.install()
+                    call.respondText(result(started, detail), ContentType.Application.Json)
+                }
+
                 post("/api/traktor/clear") {
                     val outcome = TraktorCache.clear()
                     call.respondText(
@@ -138,8 +143,8 @@ object ControlPanel {
                     val body = json.parseToJsonElement(call.receiveText()) as JsonObject
                     val name = body["name"]?.jsonPrimitive?.contentOrNull
                     if (name == "spotify") {
-                        File("data/credentials.json").delete()
-                        File("data/spotify-refresh-token").delete()
+                        AppPaths.data("data/credentials.json").delete()
+                        AppPaths.data("data/spotify-refresh-token").delete()
                         call.respondText(result(true, "Signed out, restart to sign in again"), ContentType.Application.Json)
                     } else {
                         call.respondText(result(false, "Nothing to sign out of"), ContentType.Application.Json)
@@ -280,6 +285,16 @@ object ControlPanel {
             put("hosts", buildJsonObject {
                 put("ok", hosts.status == HostsStatus.OK)
                 put("detail", hosts.detail)
+            })
+
+            val ffmpeg = Ffmpeg.state()
+            put("ffmpeg", buildJsonObject {
+                put("found", ffmpeg.found)
+                put("path", ffmpeg.path ?: "")
+                put("version", ffmpeg.version ?: "")
+                put("installing", ffmpeg.installing)
+                put("canInstall", ffmpeg.canInstall)
+                put("message", ffmpeg.message)
             })
 
             val cert = Certificates.state()

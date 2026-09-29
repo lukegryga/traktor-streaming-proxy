@@ -14,6 +14,7 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.calllogging.*
 import kotlinx.serialization.json.*
 import org.apache.log4j.BasicConfigurator
+import app.AppPaths
 import app.ControlPanel
 import app.Library
 import app.Logging
@@ -45,14 +46,14 @@ object Config {
     val prop = Properties()
 
     fun readConfig() {
-        val file = File("config.properties")
+        val file = AppPaths.data("config.properties")
         if (!file.exists())
             return
         FileInputStream(file).use { prop.load(it) }
     }
 
     fun saveConfig() {
-        val file = File("config.properties")
+        val file = AppPaths.data("config.properties")
         FileOutputStream(file).use {
             prop.store(it, "")
         }
@@ -129,7 +130,7 @@ fun main(args: Array<String>) {
     // Checked before the sources start, otherwise an interactive source login such as
     // Spotify's completes only to have the server die on the missing keystore afterwards.
     val serverPort = prop.getProperty("server.port", "443").toInt()
-    val keystoreFile = File("cert/keystore.jks")
+    val keystoreFile = AppPaths.data("cert/keystore.jks")
 
     // Provisioned here rather than by a setup script: without a trusted certificate for
     // api.beatport.com, Traktor refuses the connection and nothing else the server does matters.

@@ -33,7 +33,7 @@ object SourceManager {
      * only evidence of one. Kept here rather than in each UI so the tray and the panel cannot
      * disagree about whether a source is signed in.
      */
-    private val credentialFiles = mapOf("spotify" to File("data/credentials.json"))
+    private val credentialFiles = mapOf("spotify" to AppPaths.data("data/credentials.json"))
 
     fun statuses(): List<SourceStatus> = synchronized(statuses) { statuses.values.toList() }
 

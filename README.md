@@ -16,31 +16,49 @@ As with real Beatport streaming, Traktor will not let you use its recorder.
 ## Requirements
 
 - Windows
-- A JDK, to build. [Temurin](https://adoptium.net/) or Oracle, 17 or newer.
-- [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) on `PATH`, used to convert what Spotify streams into
-  the format Traktor accepts. `winget install Gyan.FFmpeg`
+- A JDK, only to build. [Temurin](https://adoptium.net/) or Oracle, 17 or newer. The installer
+  carries its own runtime, so anyone installing it needs nothing.
+- [ffmpeg](https://www.gyan.dev/ffmpeg/builds/), used to convert what Spotify streams into the
+  format Traktor accepts. The control panel finds it and offers to install it, so there is nothing
+  to do by hand; `winget install -e --id Gyan.FFmpeg` is the same thing from a terminal.
 - Spotify Premium, for the Spotify source
 - Traktor Pro 4
 
 ## Build
 
 ```
+gradlew.bat jpackageInstaller
+```
+
+Produces one file, `build\jpackage\installer\TraktorProxy-1.0.0.exe`, about 70 MB. It bundles its
+own Java runtime, so nothing needs installing first. It installs into
+`C:\Program Files\TraktorProxy` and asks for administrator rights once to do so, which is also what
+keeps your settings and library out of harm's way: the install folder is replaced on an upgrade and
+removed on an uninstall, and nothing of yours lives there. The app appears in the Start menu under
+**Traktor Streaming Proxy** with an uninstall entry, and the installer offers a desktop shortcut.
+
+This is the only step that needs the [WiX Toolset](https://wixtoolset.org/)
+(`winget install -e --id WiXToolset.WiXToolset`). The build finds it wherever it installed, so there
+is no PATH to set up. For the installed folder without the installer around it, use
+`gradlew.bat jpackageImage`.
+
+### Portable build
+
+```
 gradlew.bat installDist
 ```
 
-Copy `build\install\traktor-streaming-proxy` anywhere you like, for example `C:\TraktorProxy`.
-Keep it outside the repository: a rebuild replaces that directory and would take your settings and
-downloaded tracks with it.
+Copy `build\install\traktor-streaming-proxy` anywhere you like, for example `C:\TraktorProxy`, and
+start it with `traktor-proxy.vbs`. This needs a JDK on the machine, keeps everything in that one
+folder, and is what to use for a copy on a stick. Keep it outside the repository: a rebuild replaces
+that directory and would take your settings and downloaded tracks with it.
 
 ## Run
 
-```
-traktor-proxy.vbs
-```
-
-That starts it with no console window. Use `bin\traktor-streaming-proxy.bat` instead when you want
-to watch the output. A tray icon appears; everything else is in the control panel at
-**http://127.0.0.1:8088**, also reachable from the tray menu.
+Start it from the Start menu, or run `traktor-proxy.vbs` in a portable build. Either way there is no
+console window; use `bin\traktor-streaming-proxy.bat` in a portable build when you want to watch the
+output. A tray icon appears; everything else is in the control panel at **http://127.0.0.1:8088**,
+also reachable from the tray menu.
 
 Tray menu: sign in or retry sources, open the control panel, open the log, open the app folder,
 start with Windows, quit.
@@ -55,11 +73,29 @@ Traktor can reach the server, and tells you what is missing when it cannot.
   generated, added to your trusted roots and checked at every start. Superseded ones are removed.
 - **Hosts file.** `api.beatport.com` has to resolve to this machine. The entry is added if missing;
   because that file needs administrator rights, the panel offers a fix that asks for them.
+- **ffmpeg.** Only Spotify needs it, so the row is a warning rather than a failure until Spotify is
+  enabled. When it is missing there is an **Install** button that runs winget in the background; the
+  panel reports when it finishes, and the converted path picks it up without a restart.
 - **Traktor patch.** Traktor checks the license with a platform specific key, and only the macOS one
   matches the license served here, so the embedded key is swapped. A `.backup` is kept beside the
   executable. Traktor must be closed, and it needs administrator rights.
 
 Everything else is in the panel too, so `config.properties` never needs editing by hand.
+
+## Where things are stored
+
+Settings, the certificate, credentials, logs and the track library live in one data folder, which is
+found the same way wherever the app was started from.
+
+- **Portable**, the layout above: the data folder is the app folder. That is the case when a
+  `config.properties` or a `portable.txt` sits beside the application, which an `installDist` build
+  always does.
+- **Installed**, for a packaged build with no config of its own: `%LOCALAPPDATA%\TraktorProxy`,
+  deliberately nowhere near `C:\Program Files\TraktorProxy` so an uninstall cannot take it.
+
+`-Dtraktorproxy.dataDir=...` overrides both, which is how to run a second copy. Moving from a
+portable folder to an installed build does not carry the old settings across: copy
+`config.properties`, `cert`, `data` and `library` into the new data folder first.
 
 ## Spotify
 

@@ -17,7 +17,7 @@ data class LibraryEntry(val trackId: String, val file: File, val playedAt: Long)
  */
 object Library {
 
-    private val indexFile = File("data/library-index.properties")
+    private val indexFile = AppPaths.dataFile("data/library-index.properties")
     private val names = HashMap<String, String>()
     private val played = HashMap<String, Long>()
 

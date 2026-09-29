@@ -22,7 +22,7 @@ data class IndexedTrack(
  */
 object TrackIndex {
 
-    private val file = File("data/track-index.json")
+    private val file = AppPaths.dataFile("data/track-index.json")
     private val entries = HashMap<Long, IndexedTrack>()
     private val json = Json { ignoreUnknownKeys = true }
 

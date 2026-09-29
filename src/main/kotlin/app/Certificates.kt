@@ -31,8 +31,8 @@ data class CertificateState(
  */
 object Certificates {
 
-    private val keystoreFile = File("cert/keystore.jks")
-    private val crtFile = File("cert/server.crt")
+    private val keystoreFile = AppPaths.dataFile("cert/keystore.jks")
+    private val crtFile = AppPaths.dataFile("cert/server.crt")
 
     fun state(): CertificateState {
         val cert = load() ?: return CertificateState(false, null, false, "No certificate yet")

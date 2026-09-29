@@ -11,7 +11,7 @@ import java.io.RandomAccessFile
 
 object Logging {
 
-    private const val LOG_PATH = "logs/proxy.log"
+    private val logPath: File by lazy { AppPaths.dataFile("logs/proxy.log") }
     private const val MAX_BYTES = 256L * 1024
     private const val KEEP_BYTES = 128L * 1024
 
@@ -26,8 +26,7 @@ object Logging {
      * means whichever trims it leaves the other writing at a stale offset.
      */
     fun configure() {
-        File(LOG_PATH).parentFile?.mkdirs()
-        sink = CappedFile(File(LOG_PATH))
+        sink = CappedFile(logPath)
 
         val console = System.out
         val tee = PrintStream(Tee(console, sink), true)
@@ -41,7 +40,7 @@ object Logging {
         }
     }
 
-    fun logFile(): File = File(LOG_PATH).absoluteFile
+    fun logFile(): File = logPath.absoluteFile
 
     fun setLevel(name: String) {
         val level = Level.toLevel(name.uppercase(), Level.INFO)
@@ -50,7 +49,7 @@ object Logging {
     }
 
     fun tail(lines: Int): String {
-        val file = File(LOG_PATH)
+        val file = logPath
         if (!file.isFile) return ""
         return runCatching {
             val kept = ArrayDeque<String>(lines)

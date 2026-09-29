@@ -43,8 +43,17 @@ object Settings {
     val beatportAccountId: String
         get() = prop.getProperty("beatport.accountId", "")
 
+    /**
+     * Anything relative resolves against the data folder rather than the working directory, which
+     * is what the unset default used to rely on. The setter only ever writes absolute paths, so a
+     * relative value here means an install that predates that.
+     */
     var libraryPath: File
-        get() = File(prop.getProperty("library.path", "library"))
+        get() {
+            val configured = prop.getProperty("library.path", "")
+            if (configured.isBlank()) return AppPaths.data("library")
+            return File(configured).takeIf { it.isAbsolute } ?: File(AppPaths.dataDir, configured)
+        }
         set(value) = set("library.path", value.absolutePath)
 
     var libraryLimitEnabled: Boolean

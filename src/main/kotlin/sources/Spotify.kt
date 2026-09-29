@@ -33,6 +33,7 @@ private const val KEYMASTER_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd"
 private const val WEB_API = "https://api.spotify.com/v1"
 private const val LIBRESPOT_REDIRECT_PORT = 5588
 private const val LIBRESPOT_REDIRECT_URI = "http://127.0.0.1:$LIBRESPOT_REDIRECT_PORT/login"
+private const val LOGIN5_ENDPOINT = "https://login5.spotify.com/v3/login"
 
 class Spotify : ISource {
 
@@ -57,13 +58,10 @@ class Spotify : ISource {
         try {
             createSession()
         } catch (ex: InvalidProtocolBufferException) {
-            // librespot parses login5's response without checking the status, so an error page
-            // from a rate limit or an outage arrives as a protobuf parse failure.
-            throw IllegalStateException(
-                "Spotify's login endpoint returned something unexpected, which usually means it is " +
-                    "rate limiting this device. It clears on its own; try again in a few minutes.",
-                ex
-            )
+            // librespot parses login5's response without checking the status, so any error page
+            // arrives as a protobuf parse failure with the cause thrown away. The endpoint is
+            // asked again here purely to recover the status code and say which failure it was.
+            throw IllegalStateException(login5Diagnosis(), ex)
         }
         // Done at startup so both browser logins happen together rather than on a later request.
         webAuth.token()
@@ -247,7 +245,9 @@ class Spotify : ISource {
     }.onFailure { println("No cover art: ${it.message}") }.getOrNull()
 
     private fun transcode(ogg: File, cover: File?, track: JsonObject?, target: File) {
-        val command = mutableListOf("ffmpeg", "-y", "-i", ogg.absolutePath)
+        // Resolved rather than left to PATH, so a copy installed from the panel works without a
+        // restart: this process inherited its PATH before that install ran.
+        val command = mutableListOf(app.Ffmpeg.executable(), "-y", "-i", ogg.absolutePath)
         if (cover != null) command.addAll(listOf("-i", cover.absolutePath))
 
         command.addAll(listOf("-map", "0:a"))
@@ -292,8 +292,27 @@ class Spotify : ISource {
         }
     }
 
+    /**
+     * librespot invents a random device id whenever one is not configured, so every restart
+     * looked to Spotify like a brand new device logging in. Kept in its own file rather than
+     * beside the credentials, so deleting those to force a fresh login reuses the same device
+     * instead of registering yet another one.
+     */
+    private fun deviceId(): String {
+        val file = app.AppPaths.dataFile("data/device-id")
+        val stored = file.takeIf { it.exists() }?.readText()?.trim()?.lowercase()
+        if (stored != null && stored.matches(Regex("[0-9a-f]{40}"))) return stored
+
+        val generated = ByteArray(20).also { java.security.SecureRandom().nextBytes(it) }
+            .joinToString("") { "%02x".format(it) }
+        file.parentFile?.mkdirs()
+        file.writeText(generated)
+        println("Spotify: registered this installation as device $generated")
+        return generated
+    }
+
     private fun createSession() {
-        val credentialsFile = File("data/credentials.json")
+        val credentialsFile = app.AppPaths.dataFile("data/credentials.json")
         credentialsFile.parentFile?.mkdirs()
 
         val conf = Session.Configuration.Builder()
@@ -302,8 +321,12 @@ class Spotify : ISource {
             .setStoredCredentialsFile(credentialsFile)
             .build()
 
+        fun builder() = Session.Builder(conf)
+            .setDeviceId(deviceId())
+            .setDeviceName("Traktor Streaming Proxy")
+
         if (credentialsFile.exists()) {
-            session = Session.Builder(conf).stored().create()
+            session = builder().stored().create()
             return
         }
 
@@ -313,7 +336,33 @@ class Spotify : ISource {
             Browser.open(oauth.authUrl)
             oauth.setCode(OAuthCallback.await(LIBRESPOT_REDIRECT_PORT, "/login", 10, TimeUnit.MINUTES))
             oauth.requestToken()
-            session = Session.Builder(conf).credentials(oauth.credentials).create()
+            session = builder().credentials(oauth.credentials).create()
+        }
+    }
+
+    /**
+     * Asks login5 what it is doing so the failure can be named. An empty body is enough: the
+     * statuses worth distinguishing are decided at the edge, before the request is parsed, and a
+     * healthy endpoint rejects it with a 4xx that is not 429.
+     */
+    private fun login5Diagnosis(): String {
+        val status = try {
+            val con = WebRequests.createConnection(LOGIN5_ENDPOINT, "POST")
+            WebRequests.post(con, ByteArray(0)).responseCode
+        } catch (ex: IOException) {
+            return "Spotify's login endpoint could not be reached (${ex.message}). Check the " +
+                "network connection, then try again."
+        }
+
+        return when {
+            status == 429 -> "Spotify's login endpoint is rate limiting this device (HTTP 429). " +
+                "It clears on its own; try again in a few minutes."
+            status >= 500 -> "Spotify's login endpoint is down (HTTP $status), which is an outage " +
+                "on their side, not a problem with this install or the saved login. It will work " +
+                "again once they fix it; the saved credentials stay valid, so nothing needs " +
+                "re-authorising."
+            else -> "Spotify's login endpoint returned something unexpected (HTTP $status) that " +
+                "librespot could not parse. Try again in a few minutes."
         }
     }
 

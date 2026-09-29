@@ -144,6 +144,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div class="sub trunc" id="hostsLine">—</div></div>
         <span class="pill" id="hostsPill">—</span>
         <button id="hostsFix" class="hide">Fix</button></div>
+      <div class="row"><div class="grow"><div>ffmpeg</div>
+        <div class="sub trunc" id="ffmpegLine">—</div></div>
+        <span class="pill" id="ffmpegPill">—</span>
+        <button id="ffmpegInstall" class="hide">Install</button></div>
       <div class="row" style="display:block">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <div class="grow"><div>Traktor</div>
@@ -322,6 +326,22 @@ function render(){
   $('hostsPill').className = 'pill '+(s.hosts.ok ? 'ok' : 'bad');
   $('hostsFix').classList.toggle('hide', s.hosts.ok);
 
+  // Only Spotify needs it, so a YouTube or Tidal only install is not held back by a missing copy.
+  const f = s.ffmpeg;
+  const spotifyOn = s.providers.some(p => p.name === 'spotify' && p.enabled);
+  const fState = f.installing ? 'installing' : f.found ? 'found' : spotifyOn ? 'missing' : 'optional';
+  $('ffmpegPill').textContent = {installing:'Installing', found:'Found', missing:'Not found',
+    optional:'Not found'}[fState];
+  $('ffmpegPill').className = 'pill '+{installing:'warn', found:'ok', missing:'bad', optional:'off'}[fState];
+  $('ffmpegLine').textContent =
+    f.installing ? (f.message || 'Downloading with winget, this takes a few minutes')
+    : f.found ? (f.version ? 'Version '+f.version+' at '+f.path : f.path)
+    : !f.canInstall ? (f.message || 'Not found, and winget is unavailable to install it')
+    : f.message ? f.message
+    : spotifyOn ? 'Not found — Spotify cannot convert what it streams without it'
+    : 'Not found — only needed once Spotify is enabled';
+  $('ffmpegInstall').classList.toggle('hide', f.found || f.installing || !f.canInstall);
+
   $('cacheState').textContent = 'Account '+(s.accountId||'unknown')+' · '+s.traktorCacheFiles+
     ' files · '+mb(s.traktorCacheBytes);
   const p = s.patch;
@@ -331,7 +351,7 @@ function render(){
     + (s.traktorFound ? '' : ' hide');
   $('patchFix').classList.toggle('hide', p.status !== 'UNPATCHED');
 
-  const ready = c.healthy && s.hosts.ok && p.status === 'PATCHED';
+  const ready = c.healthy && s.hosts.ok && p.status === 'PATCHED' && (!spotifyOn || f.found);
   $('instDot').style.background = ready ? 'var(--ok)' : 'var(--warn)';
   $('instText').textContent = ready ? 'Installed successfully' : 'Installation is not complete';
   const tFound = s.traktorFound, tSet = s.traktorConfigured, tValid = s.traktorPathValid;
@@ -494,6 +514,17 @@ $('patchFix').onclick = async () => {
 $('hostsFix').onclick = async () => {
   toast('Waiting for the administrator prompt...');
   const r = await post('/api/hosts/fix', {}); toast(r.message); load();
+};
+
+$('ffmpegInstall').onclick = async () => {
+  const ok = await confirmDialog('Install ffmpeg?',
+    'winget fetches the Gyan build, which is the one this app is tested against. It runs in the '+
+    'background and this page reports when it is done.',
+    ['Around 150 MB to download',
+     'Installed with winget under your own account',
+     'Picked up without restarting the app']);
+  if(!ok) return;
+  const r = await post('/api/ffmpeg/install', {}); toast(r.message); load();
 };
 
 $('certNew').onclick = async () => {

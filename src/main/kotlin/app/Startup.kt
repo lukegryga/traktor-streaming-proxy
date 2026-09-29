@@ -21,7 +21,10 @@ object Startup {
             return
         }
 
-        val launcher = File(File(System.getProperty("user.dir")), "traktor-proxy.vbs").absolutePath
+        // Whatever this build starts through: the native launcher when it is packaged, otherwise
+        // the script that starts the JVM without a console. Neither can be assumed from a path
+        // relative to the working directory any more.
+        val launcher = (AppPaths.launcher ?: File(AppPaths.appDir, "traktor-proxy.vbs")).absolutePath
         file.parentFile?.mkdirs()
         file.writeText(
             """

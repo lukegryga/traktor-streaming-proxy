@@ -15,7 +15,7 @@ object SingleInstance {
     private var file: RandomAccessFile? = null
 
     fun acquire(): Boolean {
-        val target = File(System.getProperty("user.dir"), "app.lock")
+        val target = AppPaths.data("app.lock")
         return try {
             val handle = RandomAccessFile(target, "rw")
             val acquired = handle.channel.tryLock()
