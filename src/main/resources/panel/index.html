@@ -82,36 +82,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-tab="providers">Providers</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="library">Library</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="installation">Installation</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="logs">Logs</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="settings">Settings</button>
   </div>
 
-  <section id="installation" class="hide">
-    <div class="card">
-      <h2>Certificate</h2>
-      <div class="row"><span class="grow sub" id="certLine">—</span>
-        <span class="pill" id="certPill">—</span>
-        <button id="certNew">Regenerate</button></div>
-    </div>
-    <div class="card">
-      <h2>Hosts file</h2>
-      <div class="row"><span class="grow sub" id="hostsLine">—</span>
-        <span class="pill" id="hostsPill">—</span>
-        <button id="hostsFix" class="hide">Fix</button></div>
-    </div>
-    <div class="card">
-      <h2>Traktor</h2>
-      <div class="row"><div class="grow"><div>License patch</div>
-        <div class="sub trunc" id="patchLine">—</div></div>
-        <span class="pill" id="patchPill">—</span>
-        <button id="patchFix" class="hide">Patch</button></div>
-      <div class="row"><div class="grow"><div>Executable</div>
-        <div class="sub">Detected automatically; browse for it if that fails</div></div>
-        <input id="traktorPath" class="mono" style="width:210px" placeholder="Not set">
-        <button id="traktorBrowse">Browse</button></div>
-    </div>
-  </section>
 
   <section id="providers"><div class="card" id="provList"></div></section>
 
@@ -159,8 +133,26 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 
   <section id="settings" class="hide">
     <div class="card">
-      <h2>Server</h2>
-      <div class="row"><div class="grow">Beatport port</div>
+      <h2>Installation</h2>
+      <div class="row"><div class="grow"><div>Certificate</div>
+        <div class="sub trunc" id="certLine">—</div></div>
+        <span class="pill" id="certPill">—</span>
+        <button id="certNew">Regenerate</button></div>
+      <div class="row"><div class="grow"><div>Hosts file</div>
+        <div class="sub trunc" id="hostsLine">—</div></div>
+        <span class="pill" id="hostsPill">—</span>
+        <button id="hostsFix" class="hide">Fix</button></div>
+      <div class="row"><div class="grow"><div>Traktor license patch</div>
+        <div class="sub trunc" id="patchLine">—</div></div>
+        <span class="pill" id="patchPill">—</span>
+        <button id="patchFix" class="hide">Patch</button></div>
+      <div class="row"><div class="grow"><div>Traktor executable</div>
+        <div class="sub">Detected automatically; browse for it if that fails</div></div>
+        <input id="traktorPath" class="mono" style="width:210px" placeholder="Not set">
+        <button id="traktorBrowse">Browse</button></div>
+    </div>
+    <div class="card">
+      <h2>Server</h2>      <div class="row"><div class="grow">Beatport port</div>
         <input id="serverPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
       <div class="row"><div class="grow">Control panel port</div>
         <input id="uiPort" type="number" style="width:88px"><span class="sub">restart needed</span></div>
@@ -240,7 +232,7 @@ function ago(ts){ if(!ts) return 'never played';
 
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x===t)));
-  ['providers','library','installation','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
+  ['providers','library','logs','settings'].forEach(s => $(s).classList.toggle('hide', s!==t.dataset.tab));
   if(t.dataset.tab==='logs') loadLogs();
 });
 
