@@ -122,9 +122,16 @@ fun main() {
     val serverPort = prop.getProperty("server.port", "443").toInt()
     val useKeystore = prop.getProperty("server.useKeystore", "false").toBoolean()
     val keystoreFile = File("cert/keystore.jks")
-    if (useKeystore && !keystoreFile.exists()) {
-        System.err.println("server.useKeystore is enabled but ${keystoreFile.absolutePath} does not exist. Run cert/gen-cert.sh and rebuild.")
-        return
+    if (useKeystore) {
+        // Provisioned here rather than by a setup script: without a trusted certificate for
+        // api.beatport.com, Traktor refuses the connection and nothing else the server does matters.
+        app.Certificates.ensure()
+            .onSuccess { println(it) }
+            .onFailure { System.err.println("Certificate setup failed: ${it.message}") }
+        if (!keystoreFile.exists()) {
+            System.err.println("No usable certificate at ${keystoreFile.absolutePath}; cannot serve HTTPS.")
+            return
+        }
     }
 
     prop.getProperty("sources.enabled", "")

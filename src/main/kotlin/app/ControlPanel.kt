@@ -85,6 +85,25 @@ object ControlPanel {
                     )
                 }
 
+                post("/api/certificate/regenerate") {
+                    val outcome = Certificates.regenerate()
+                    call.respondText(
+                        outcome.fold({ result(true, it) }, { result(false, it.message ?: "Failed") }),
+                        ContentType.Application.Json
+                    )
+                }
+
+                post("/api/certificate/prune") {
+                    val outcome = Certificates.removeStaleOnly()
+                    call.respondText(
+                        outcome.fold(
+                            { result(true, if (it > 0) "Removed $it stale certificates" else "Nothing stale to remove") },
+                            { result(false, it.message ?: "Failed") }
+                        ),
+                        ContentType.Application.Json
+                    )
+                }
+
                 post("/api/traktor/clear") {
                     val outcome = TraktorCache.clear()
                     call.respondText(
@@ -170,6 +189,19 @@ object ControlPanel {
             put("uiPort", Settings.uiPort)
             put("useKeystore", Settings.useKeystore)
             put("keystorePresent", File("cert/keystore.jks").isFile)
+
+            val cert = Certificates.state()
+            put("cert", buildJsonObject {
+                put("present", cert.present)
+                put("subject", cert.subject ?: "")
+                put("expiresAt", cert.expiresAt ?: 0L)
+                put("daysRemaining", cert.daysRemaining ?: 0L)
+                put("hostMatches", cert.hostMatches)
+                put("trusted", cert.trusted)
+                put("staleCount", cert.staleCount)
+                put("healthy", cert.healthy)
+                put("problem", cert.problem ?: "")
+            })
             put("accountId", Settings.beatportAccountId)
             put("spotifyClientId", Settings.spotifyClientId)
             put("tidalClientId", Settings.tidalClientId)
