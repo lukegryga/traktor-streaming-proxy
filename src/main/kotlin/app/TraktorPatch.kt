@@ -37,11 +37,21 @@ data class PatchState(val status: PatchStatus, val path: String, val detail: Str
  */
 object TraktorPatch {
 
+    // Scanning half a gigabyte on every poll of the panel would be absurd, and the answer only
+    // changes when the file does.
+    private val keyed = HashMap<String, Boolean>()
+    private var cachedState: Pair<String, PatchState>? = null
+
+    private fun identity(file: File) = "${file.absolutePath}|${file.length()}|${file.lastModified()}"
+
     fun state(): PatchState {
         val exe = locate()
             ?: return PatchState(PatchStatus.NOT_FOUND, "", "Traktor was not found; set its path below")
 
-        return when {
+        val id = identity(exe)
+        cachedState?.let { if (it.first == id) return it.second }
+
+        val state = when {
             find(exe, MAC_KEY) != null ->
                 PatchState(PatchStatus.PATCHED, exe.absolutePath, "${exe.name} is patched")
             find(exe, WINDOWS_KEY) != null ->
@@ -49,6 +59,8 @@ object TraktorPatch {
             else ->
                 PatchState(PatchStatus.UNRECOGNISED, exe.absolutePath, "No known key in ${exe.name}")
         }
+        cachedState = id to state
+        return state
     }
 
     /**
@@ -64,16 +76,41 @@ object TraktorPatch {
 
         runningTraktor()?.let { return it }
 
-        return installDirectories()
+        val candidates = installDirectories()
             .flatMap { dir -> dir.walkTopDown().maxDepth(3).filter { candidate(it) } }
-            .firstOrNull()
+            .sortedWith(compareByDescending<File> { rank(it) }.thenByDescending { it.length() })
+            .toList()
+
+        // Name and size only narrow the field: bundled driver installers are also called
+        // Traktor something.exe. Carrying one of the license keys is what makes it the player.
+        return candidates.firstOrNull { carriesKey(it) } ?: candidates.firstOrNull()
     }
 
-    private fun candidate(file: File): Boolean =
-        file.isFile &&
-            file.name.startsWith("Traktor", ignoreCase = true) &&
-            file.name.endsWith(".exe", ignoreCase = true) &&
-            !file.name.contains("crashpad", ignoreCase = true)
+    private val excludedFolders = setOf("drivers", "documentation", "backup", "resources", "resources64")
+    private val excludedWords = listOf("setup", "driver", "install", "uninstall", "crashpad", "helper", "update")
+
+    private fun candidate(file: File): Boolean {
+        if (!file.isFile) return false
+        if (!file.name.startsWith("Traktor", true) || !file.name.endsWith(".exe", true)) return false
+        if (excludedWords.any { file.name.contains(it, true) }) return false
+        return generateSequence(file.parentFile) { it.parentFile }
+            .takeWhile { !it.name.equals("Native Instruments", true) }
+            .none { dir ->
+                val name = dir.name.lowercase()
+                excludedFolders.contains(name) || name.contains("driver")
+            }
+    }
+
+    private fun rank(file: File): Int {
+        var score = 0
+        if (Regex("^Traktor( Pro \\d+)?\\.exe$", RegexOption.IGNORE_CASE).matches(file.name)) score += 2
+        if (file.parentFile?.name?.startsWith("Traktor", true) == true) score += 1
+        return score
+    }
+
+    private fun carriesKey(file: File): Boolean = keyed.getOrPut(identity(file)) {
+        find(file, MAC_KEY) != null || find(file, WINDOWS_KEY) != null
+    }
 
     private fun runningTraktor(): File? = runCatching {
         ProcessHandle.allProcesses()
