@@ -1,7 +1,6 @@
 import Config.prop
 import beatport.api.*
 import io.ktor.http.*
-import io.ktor.network.tls.certificates.buildKeyStore
 import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.request.*
@@ -32,7 +31,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.KeyStore
 import java.util.*
-import kotlin.collections.ArrayList
 import kotlin.math.min
 
 
@@ -127,6 +125,15 @@ fun main(args: Array<String>) {
         }
     })
 
+    // Before anything that touches the certificate stores. A second copy started by hand while one
+    // is already serving used to provision certificates first and only then notice it was not
+    // wanted, and clearing superseded certificates removes the one the running server is in the
+    // middle of serving - which Traktor reports as a failed login until that server is restarted.
+    if (!SingleInstance.acquire()) {
+        println("Another instance is already running; exiting.")
+        return
+    }
+
     // Checked before the sources start, otherwise an interactive source login such as
     // Spotify's completes only to have the server die on the missing keystore afterwards.
     val serverPort = prop.getProperty("server.port", "443").toInt()
@@ -143,16 +150,11 @@ fun main(args: Array<String>) {
         return
     }
 
-    prop.getProperty("sources.enabled", "")
-        .split(",")
-        .map { it.trim() }
+    // Read through Settings rather than the property directly, so the default for a fresh install
+    // is decided in one place and startup cannot disagree with what the panel shows.
+    app.Settings.enabledSources
         .filter { allSources.containsKey(it) }
         .forEach { SourceManager.register(it, allSources.getValue(it)) }
-
-    if (!SingleInstance.acquire()) {
-        println("Another instance is already running; exiting.")
-        return
-    }
 
     Logging.setLevel(app.Settings.logLevel)
     ControlPanel.start()
@@ -211,7 +213,14 @@ fun main(args: Array<String>) {
             }
 
             get("/v4/my/account/") {
-                call.respond(Account(prop.getProperty("beatport.accountId").toInt()))
+                // Through Settings so the compiled-in default applies. Traktor calls this straight
+                // after the token exchange and treats any failure here as a rejected login.
+                val accountId = app.Settings.beatportAccountId.toIntOrNull()
+                if (accountId == null) {
+                    System.err.println("beatport.accountId is not a number; Traktor will refuse to log in")
+                    return@get call.respond(HttpStatusCode.InternalServerError, "Invalid beatport.accountId")
+                }
+                call.respond(Account(accountId))
             }
 
             get("/v4/my/license/") {

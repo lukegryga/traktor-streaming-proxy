@@ -1,9 +1,11 @@
-# The project builds and runs on Linux; CRLF breaks the gradlew shebang in the
-# Docker build. Check everything out as LF regardless of the local core.autocrlf.
+# Checked out as LF regardless of the local core.autocrlf: CRLF breaks the
+# gradlew shebang, and mixed endings make the diffs unreadable.
 * text=auto eol=lf
 
-# Windows batch files are the one thing that genuinely needs CRLF.
+# Windows batch files are the one thing that genuinely needs CRLF. The launchers that ship in the
+# zip are .cmd; gradlew.bat is the .bat.
 *.bat text eol=crlf
+*.cmd text eol=crlf
 
 *.jar binary
 *.png binary

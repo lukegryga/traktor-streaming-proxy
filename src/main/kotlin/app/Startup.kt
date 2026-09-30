@@ -5,6 +5,10 @@ import java.io.File
 /**
  * A .vbs dropped in the Startup folder rather than a .lnk or a Run registry entry: shortcuts need
  * COM to create, and the user can see and delete this one without a registry editor.
+ *
+ * The file keeps the old project slug for its name on purpose. Anyone upgrading already has an entry
+ * under that name, pointing at wherever the app used to live, and matching it is what lets this
+ * overwrite or remove it rather than leave a second one behind that starts nothing.
  */
 object Startup {
 
@@ -21,10 +25,13 @@ object Startup {
             return
         }
 
-        // Whatever this build starts through: the native launcher when it is packaged, otherwise
-        // the script that starts the JVM without a console. Neither can be assumed from a path
-        // relative to the working directory any more.
-        val launcher = (AppPaths.launcher ?: File(AppPaths.appDir, "traktor-proxy.vbs")).absolutePath
+        // Nothing to point at under Gradle, and an entry naming a launcher that is not there would
+        // fail quietly at every login.
+        val launcher = AppPaths.launcher?.absolutePath ?: return
+
+        // A .vbs wrapper around the launcher, rather than the launcher itself: run with a window
+        // style of 0 it starts hidden, so nothing flashes at login. The path is absolute because
+        // the working directory at login is not this folder.
         file.parentFile?.mkdirs()
         file.writeText(
             """

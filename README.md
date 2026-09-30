@@ -16,8 +16,9 @@ As with real Beatport streaming, Traktor will not let you use its recorder.
 ## Requirements
 
 - Windows
-- A JDK, only to build. [Temurin](https://adoptium.net/) or Oracle, 17 or newer. The installer
-  carries its own runtime, so anyone installing it needs nothing.
+- Java 17 or newer, [Temurin](https://adoptium.net/) or Oracle. There is no bundled runtime, so
+  this is the one thing to install first: `winget install -e --id EclipseAdoptium.Temurin.21.JRE`.
+  A JRE is enough to run it; building needs a JDK.
 - [ffmpeg](https://www.gyan.dev/ffmpeg/builds/), used to convert what Spotify streams into the
   format Traktor accepts. The control panel finds it and offers to install it, so there is nothing
   to do by hand; `winget install -e --id Gyan.FFmpeg` is the same thing from a terminal.
@@ -27,41 +28,49 @@ As with real Beatport streaming, Traktor will not let you use its recorder.
 ## Build
 
 ```
-gradlew.bat jpackageInstaller
+gradlew.bat portableZip
 ```
 
-Produces one file, `build\jpackage\installer\TraktorProxy-1.0.0.exe`, about 70 MB. It bundles its
-own Java runtime, so nothing needs installing first. It installs into
-`C:\Program Files\TraktorProxy` and asks for administrator rights once to do so, which is also what
-keeps your settings and library out of harm's way: the install folder is replaced on an upgrade and
-removed on an uninstall, and nothing of yours lives there. The app appears in the Start menu under
-**Traktor Streaming Proxy** with an uninstall entry, and the installer offers a desktop shortcut.
+Produces one file, `build\distributions\TraktorProxy-1.0.3.zip`, about 23 MB and all of it jars.
+No installer, no WiX Toolset, no administrator rights and nothing written outside the folder you
+unzip it into.
 
-This is the only step that needs the [WiX Toolset](https://wixtoolset.org/)
-(`winget install -e --id WiXToolset.WiXToolset`). The build finds it wherever it installed, so there
-is no PATH to set up. For the installed folder without the installer around it, use
-`gradlew.bat jpackageImage`.
+For the same folder unzipped, to run or test from, use `gradlew.bat portableDir` and look in
+`build\portable\TraktorProxy`. Keep any folder you actually use outside the repository:
+a rebuild replaces that directory and would take your settings and downloaded tracks with it.
 
-### Portable build
+## Install
 
-```
-gradlew.bat installDist
-```
+Unzip anywhere you can write to, for example `C:\TraktorProxy`, and that folder is the whole
+application. Then, once:
 
-Copy `build\install\traktor-streaming-proxy` anywhere you like, for example `C:\TraktorProxy`, and
-start it with `traktor-proxy.vbs`. This needs a JDK on the machine, keeps everything in that one
-folder, and is what to use for a copy on a stick. Keep it outside the repository: a rebuild replaces
-that directory and would take your settings and downloaded tracks with it.
+- **`Create shortcuts.cmd`** puts a *Traktor Streaming Proxy* shortcut with the app icon on the
+  desktop and in the Start menu. Optional; run it again if you move the folder.
+
+To **upgrade**, unzip a newer release over the folder. Only `lib\` and the launchers are replaced,
+and the folder inside the archive carries no version so it lands in the same place. Your settings,
+credentials and library sit beside them and survive.
+
+To **uninstall**, turn off *Start with Windows* in the tray menu, quit, and delete the folder. Two
+things live outside it: the `api.beatport.com` line in `C:\Windows\System32\drivers\etc\hosts`, and
+the generated root certificate under *Manage user certificates*, *Trusted Root Certification
+Authorities*.
 
 ## Run
 
-Start it from the Start menu, or run `traktor-proxy.vbs` in a portable build. Either way there is no
-console window; use `bin\traktor-streaming-proxy.bat` in a portable build when you want to watch the
-output. A tray icon appears; everything else is in the control panel at **http://127.0.0.1:8088**,
-also reachable from the tray menu.
+Start it from the shortcut, or run `TraktorProxy.cmd`. There is no console window; the one the
+launcher itself opens closes within a moment. Use `TraktorProxy-console.cmd` when you want to watch
+the output, which is the thing to reach for when the tray icon never appears.
 
-Tray menu: sign in or retry sources, open the control panel, open the log, open the app folder,
-start with Windows, quit.
+The launcher finds Java through `JAVA_HOME` first and `PATH` second, and says so plainly when there
+is none or when what it finds is older than 17.
+
+A tray icon appears; everything else is in the control panel at **http://127.0.0.1:8088**, also
+reachable from the tray menu.
+
+The tray menu lists each provider with a coloured dot, warns when the setup is incomplete, and
+opens the control panel or the music folder. Everything else is in the panel: the log is its **Logs**
+tab and *Start with Windows* is in **Settings**.
 
 ## Setup
 
@@ -84,18 +93,19 @@ Everything else is in the panel too, so `config.properties` never needs editing 
 
 ## Where things are stored
 
-Settings, the certificate, credentials, logs and the track library live in one data folder, which is
-found the same way wherever the app was started from.
+Settings, the certificate, credentials, logs and the track library all live in the app folder, next
+to the launchers. That is what `portable.txt` in there means: delete it and the data folder moves to
+`%LOCALAPPDATA%\TraktorProxy` instead, which is also where a `gradlew.bat run` writes since there is
+no app folder to use. `-Dtraktorproxy.dataDir=...` overrides both, which is how to run a second copy.
 
-- **Portable**, the layout above: the data folder is the app folder. That is the case when a
-  `config.properties` or a `portable.txt` sits beside the application, which an `installDist` build
-  always does.
-- **Installed**, for a packaged build with no config of its own: `%LOCALAPPDATA%\TraktorProxy`,
-  deliberately nowhere near `C:\Program Files\TraktorProxy` so an uninstall cannot take it.
+`config.properties.example` is documentation and is never read. The real `config.properties` is
+written by the panel on first save, so nothing needs editing by hand and an upgrade cannot overwrite
+what you have set.
 
-`-Dtraktorproxy.dataDir=...` overrides both, which is how to run a second copy. Moving from a
-portable folder to an installed build does not carry the old settings across: copy
-`config.properties`, `cert`, `data` and `library` into the new data folder first.
+**Coming from the old installer build**, which kept its data in `%LOCALAPPDATA%\TraktorProxy`: copy
+`config.properties`, `cert`, `data` and `library` from there into the new folder before the first
+start, or delete `portable.txt` to go on using that location. Uninstall the old one from Settings,
+Apps.
 
 ## Spotify
 

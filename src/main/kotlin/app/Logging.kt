@@ -40,8 +40,6 @@ object Logging {
         }
     }
 
-    fun logFile(): File = logPath.absoluteFile
-
     fun setLevel(name: String) {
         val level = Level.toLevel(name.uppercase(), Level.INFO)
         Logger.getRootLogger().level = level

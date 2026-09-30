@@ -1,7 +1,6 @@
 package app
 
 import sources.ISource
-import java.io.File
 
 enum class State { IDLE, STARTING, READY, FAILED }
 

@@ -87,12 +87,31 @@ object TraktorPatch {
     }
 
     private val excludedFolders = setOf("drivers", "documentation", "backup", "resources", "resources64")
-    private val excludedWords = listOf("setup", "driver", "install", "uninstall", "crashpad", "helper", "update")
+    private val excludedWords =
+        listOf("setup", "driver", "install", "uninstall", "crashpad", "helper", "update", "proxy")
+
+    /**
+     * The name test, shared by the folder scan and the process scan so neither can drift from the
+     * other. "proxy" is excluded because a Traktor*.exe calling itself a proxy is not the player;
+     * this application ships no .exe of its own, but a renamed launcher would fit the name test.
+     */
+    private fun namedLikeTraktor(file: File): Boolean =
+        file.name.startsWith("Traktor", true) &&
+            file.name.endsWith(".exe", true) &&
+            excludedWords.none { file.name.contains(it, true) }
+
+    /**
+     * Nothing living where this application was installed is the player. Belt and braces next to
+     * the name test: a rename would get past that one, and patching ourselves would be far worse
+     * than failing to find Traktor.
+     */
+    private fun isSelf(file: File): Boolean = runCatching {
+        file.canonicalFile.toPath().startsWith(AppPaths.appDir.canonicalFile.toPath())
+    }.getOrDefault(false)
 
     private fun candidate(file: File): Boolean {
         if (!file.isFile) return false
-        if (!file.name.startsWith("Traktor", true) || !file.name.endsWith(".exe", true)) return false
-        if (excludedWords.any { file.name.contains(it, true) }) return false
+        if (!namedLikeTraktor(file) || isSelf(file)) return false
         return generateSequence(file.parentFile) { it.parentFile }
             .takeWhile { !it.name.equals("Native Instruments", true) }
             .none { dir ->
@@ -115,9 +134,10 @@ object TraktorPatch {
     private fun runningTraktor(): File? = runCatching {
         ProcessHandle.allProcesses()
             .map { it.info().command().orElse("") }
-            .filter { it.endsWith(".exe", true) && it.substringAfterLast('\\').startsWith("Traktor", true) }
-            .findFirst()
+            .filter { it.isNotEmpty() }
             .map { File(it) }
+            .filter { namedLikeTraktor(it) && !isSelf(it) }
+            .findFirst()
             .orElse(null)
             ?.takeIf { it.isFile }
     }.getOrNull()

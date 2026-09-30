@@ -196,8 +196,19 @@ object ControlPanel {
         }.toString()
     }
 
-    private fun result(ok: Boolean, message: String) =
-        buildJsonObject { put("ok", ok); put("message", message) }.toString()
+    private fun result(ok: Boolean, message: String, restarting: Boolean = false) =
+        buildJsonObject { put("ok", ok); put("message", message); put("restarting", restarting) }.toString()
+
+    /**
+     * Sources are registered once at startup, so a change to the list only takes effect on the
+     * next one. Asking the user to do that by hand was one more thing to forget between changing
+     * a provider and wondering why nothing happened.
+     */
+    private fun restartFor(message: String): String {
+        if (!Restart.isAvailable()) return result(true, "$message Restart the app to apply it.")
+        Restart.schedule()
+        return result(true, "$message Restarting now.", restarting = true)
+    }
 
     private fun setProvider(name: String, enabled: Boolean): String {
         val current = Settings.enabledSources.toMutableList()
@@ -211,7 +222,7 @@ object ControlPanel {
         // The cache has to go either way: ids shift when the list changes length in either direction.
         val cleared = TraktorCache.clear()
         return cleared.fold(
-            { result(true, "Saved. Restart Traktor, its cache was cleared.") },
+            { restartFor("Saved, and Traktor's cache was cleared.") },
             { result(false, "Saved, but ${it.message}") }
         )
     }
@@ -231,7 +242,7 @@ object ControlPanel {
         Settings.enabledSources = order
 
         return TraktorCache.clear().fold(
-            { result(true, "Reordered. Restart the app, then Traktor.") },
+            { restartFor("Reordered, and Traktor's cache was cleared.") },
             { result(false, "Reordered, but ${it.message}") }
         )
     }

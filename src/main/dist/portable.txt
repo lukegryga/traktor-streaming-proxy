@@ -1,0 +1,16 @@
+This folder is the whole application.
+
+Everything it writes - config.properties, the certificate, credentials, logs and the downloaded
+track library - stays in here, next to this file. That is what this file is for: the app checks for
+it and keeps its data beside itself instead of under %LOCALAPPDATA%. Deleting it moves the data
+folder; there is no reason to.
+
+Start it with TraktorProxy.cmd, or run "Create shortcuts.cmd" once to get a desktop and Start menu
+entry. TraktorProxy-console.cmd starts the same thing with the log in a visible window.
+
+To upgrade, unzip a newer release over this folder. Only lib\ and the launchers are replaced, so
+your settings and your library survive. To uninstall, quit from the tray and delete the folder
+(turn off "Start with Windows" in the tray menu first, and remove the api.beatport.com line from
+C:\Windows\System32\drivers\etc\hosts).
+
+Java 17 or newer has to be installed; this build carries no runtime of its own.

@@ -19,8 +19,16 @@ object Settings {
         set(value) = set("server.port", value.toString())
 
 
+    /**
+     * Spotify on a fresh install: it is the source this build exists for, and an install that
+     * starts with nothing enabled looks broken in Traktor until the panel is found.
+     *
+     * Only when the key is absent altogether. An empty value is a list the user emptied, and
+     * turning their last provider off must not silently turn another one on.
+     */
     var enabledSources: List<String>
-        get() = prop.getProperty("sources.enabled", "").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        get() = (prop.getProperty("sources.enabled") ?: "spotify")
+            .split(",").map { it.trim() }.filter { it.isNotEmpty() }
         set(value) = set("sources.enabled", value.joinToString(","))
 
 
@@ -40,8 +48,17 @@ object Settings {
         get() = prop.getProperty("traktor.path", "")
         set(value) = set("traktor.path", value.trim())
 
+    /**
+     * Fixed: it is the account the crafted license is written for, which is why the shipped config
+     * says not to change it. The default lives here rather than only in that file because a
+     * fresh folder ships no config at all - only config.properties.example, which is never read -
+     * and Traktor reports a missing account id as a failed login with an unrelated message about
+     * a Beatport subscription.
+     */
+    const val DEFAULT_ACCOUNT_ID = "1337338"
+
     val beatportAccountId: String
-        get() = prop.getProperty("beatport.accountId", "")
+        get() = prop.getProperty("beatport.accountId")?.takeIf { it.isNotBlank() } ?: DEFAULT_ACCOUNT_ID
 
     /**
      * Anything relative resolves against the data folder rather than the working directory, which

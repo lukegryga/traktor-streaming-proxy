@@ -273,6 +273,32 @@ async function post(path, body){
 
 async function save(patch){ state = await post('/api/settings', patch); render(); toast('Saved'); }
 
+// The server goes away mid-request when it restarts itself, so the page waits for it to answer
+// again rather than showing the fetch failure that would otherwise be the only visible result.
+let restarting = false;
+async function awaitRestart(){
+  if(restarting) return;
+  restarting = true;
+  toast('Restarting...');
+  for(let i=0; i<90; i++){
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const r = await fetch('/api/state', {cache:'no-store'});
+      // Only a reply from the new process counts; the old one answers until its last moment.
+      if(r.ok && i > 1){ location.reload(); return; }
+    } catch(e) { /* down, which is expected */ }
+  }
+  restarting = false;
+  toast('It has not come back yet. Reload this page to check.');
+}
+
+/** Providers are the one thing a restart is needed for, so every one of them routes through here. */
+async function providerChange(path, body){
+  const r = await post(path, body);
+  toast(r.message);
+  if(r.restarting) awaitRestart(); else load();
+}
+
 async function load(){ state = await (await fetch('/api/state')).json(); render(); }
 
 function render(){
@@ -373,10 +399,8 @@ function render(){
   $('quality').value = String(s.veryHighQuality); $('logLevel').value = s.logLevel;
 
   document.querySelectorAll('[data-prov]').forEach(b => b.onclick = () => toggleProvider(b.dataset.prov));
-  document.querySelectorAll('[data-move]').forEach(b => b.onclick = async () => {
-    const r = await post('/api/provider/move', {name: b.dataset.move, up: b.dataset.up === '1'});
-    toast(r.message); load();
-  });
+  document.querySelectorAll('[data-move]').forEach(b => b.onclick = () =>
+    providerChange('/api/provider/move', {name: b.dataset.move, up: b.dataset.up === '1'}));
   document.querySelectorAll('[data-signout]').forEach(b => b.onclick = async () => {
     const r = await post('/api/signout', {name:b.dataset.signout}); toast(r.message); load();
   });
@@ -423,8 +447,7 @@ async function toggleProvider(name){
      'Requires a Traktor restart',
      'Keeps your downloaded library intact']);
   if(!ok) return;
-  const r = await post('/api/provider', {name, enabled:on});
-  toast(r.message); load();
+  await providerChange('/api/provider', {name, enabled:on});
 }
 
 $('limitOn').onclick = () => save({libraryLimitEnabled: $('limitOn').getAttribute('aria-checked')!=='true'});
@@ -569,7 +592,10 @@ $('logFollow').onclick = () => { const b=$('logFollow');
   b.setAttribute('aria-checked', String(b.getAttribute('aria-checked')!=='true')); loadLogs(); };
 
 load();
-setInterval(() => { if($('logs').classList.contains('hide')) load(); else loadLogs(); }, 4000);
+// Paused while the server is restarting itself: awaitRestart does the polling then, and a
+// background load() against a port with nothing on it only produces an unhandled rejection.
+setInterval(() => { if(restarting) return;
+  if($('logs').classList.contains('hide')) load(); else loadLogs(); }, 4000);
 </script>
 </body>
 </html>

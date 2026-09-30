@@ -33,13 +33,11 @@ object Elevate {
     }
 
     /**
-     * A packaged build starts through its own launcher, which already knows where its runtime and
-     * jars are. Only an unpackaged one has to spell the JVM invocation out, and there the jars sit
-     * in lib/ next to the scripts.
+     * The JVM invocation spelled out rather than the launcher script, which is otherwise the way in:
+     * this is a short-lived helper run, and going through a .cmd would flash a console window at
+     * every elevated fix. The running JVM is the one to reuse, and the jars sit in lib/.
      */
     private fun relaunch(): Pair<String, List<String>> {
-        AppPaths.launcher?.takeIf { AppPaths.packaged }?.let { return it.absolutePath to emptyList() }
-
         val home = File(System.getProperty("java.home"), "bin/javaw.exe")
         val javaw = if (home.isFile) home.absolutePath else "javaw"
         return javaw to listOf("-cp", "${AppPaths.appDir.absolutePath}\\lib\\*", "MainKt")

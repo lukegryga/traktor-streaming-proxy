@@ -255,6 +255,13 @@ object TrayUi {
         }
     }
 
+    /**
+     * The application's own icon, with the health of the app as a small badge over its corner.
+     *
+     * The badge is what the whole icon used to be. Losing it would mean the tray could no longer
+     * say anything is wrong, and a tray icon that cannot is worth very little; keeping it costs a
+     * corner of an image that is 16 pixels wide in the first place.
+     */
     private fun render(health: Health?): BufferedImage {
         val size = SystemTray.getSystemTray().trayIconSize
         val width = size.width.coerceAtLeast(16)
@@ -267,12 +274,34 @@ object TrayUi {
 
         (image.graphics as Graphics2D).apply {
             setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            color = colour(overall)
-            fillOval(0, 0, width - 1, height - 1)
+            setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+            setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+
+            val logo = AppIcon.image
+            if (logo != null) {
+                drawImage(logo, 0, 0, width, height, null)
+            } else {
+                // The icon could not be read; the old lettered dot is still a working tray icon.
+                color = colour(overall)
+                fillOval(0, 0, width - 1, height - 1)
+                color = Color.WHITE
+                font = Font(Font.SANS_SERIF, Font.BOLD, (height * 0.62).toInt().coerceAtLeast(8))
+                val metrics = fontMetrics
+                drawString("T", (width - metrics.stringWidth("T")) / 2, (height - metrics.height) / 2 + metrics.ascent)
+                dispose()
+                return image
+            }
+
+            // Small enough that the tractor is still the icon: at a third of the width the badge
+            // covers the rear wheel and nothing else, and it is still legible at 16 pixels.
+            val badge = (minOf(width, height) * 0.34).toInt().coerceAtLeast(5)
+            val x = width - badge
+            val y = height - badge
+            // A ring first, so the dot reads against whatever part of the logo sits under it.
             color = Color.WHITE
-            font = Font(Font.SANS_SERIF, Font.BOLD, (height * 0.62).toInt().coerceAtLeast(8))
-            val metrics = fontMetrics
-            drawString("T", (width - metrics.stringWidth("T")) / 2, (height - metrics.height) / 2 + metrics.ascent)
+            fillOval(x - 1, y - 1, badge + 2, badge + 2)
+            color = colour(overall)
+            fillOval(x, y, badge, badge)
             dispose()
         }
         return image
