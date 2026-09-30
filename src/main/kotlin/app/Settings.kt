@@ -47,14 +47,6 @@ object Settings {
         get() = prop.getProperty("spotify.clientId", "").ifBlank { DEFAULT_SPOTIFY_CLIENT_ID }
         set(value) = set("spotify.clientId", value.trim())
 
-    var tidalClientId: String
-        get() = prop.getProperty("tidal.clientId", "")
-        set(value) = set("tidal.clientId", value.trim())
-
-    var tidalClientSecret: String
-        get() = prop.getProperty("tidal.clientSecret", "")
-        set(value) = set("tidal.clientSecret", value.trim())
-
     var traktorPath: String
         get() = prop.getProperty("traktor.path", "")
         set(value) = set("traktor.path", value.trim())

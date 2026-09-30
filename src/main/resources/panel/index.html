@@ -191,10 +191,6 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="row"><div class="grow"><div>Spotify client id</div>
         <div class="sub" id="spotifyIdNote"></div></div>
         <input id="spotifyClientId" class="mono" style="width:250px"></div>
-      <div class="row"><div class="grow">Tidal client id</div>
-        <input id="tidalClientId" class="mono" style="width:250px" placeholder="Not set"></div>
-      <div class="row"><div class="grow">Tidal client secret</div>
-        <input id="tidalClientSecret" class="mono" type="password" style="width:250px" placeholder="Not set"></div>
     </div>
     <div class="card">
       <h2>Application</h2>
@@ -378,7 +374,7 @@ function render(){
   $('hostsPill').className = 'pill '+(s.hosts.ok ? 'ok' : 'bad');
   $('hostsFix').classList.toggle('hide', s.hosts.ok);
 
-  // Only Spotify needs it, so a YouTube or Tidal only install is not held back by a missing copy.
+  // Only Spotify needs it, so a YouTube only install is not held back by a missing copy.
   const f = s.ffmpeg;
   const spotifyOn = s.providers.some(p => p.name === 'spotify' && p.enabled);
   const fState = f.installing ? 'installing' : f.found ? 'found' : spotifyOn ? 'missing' : 'optional';
@@ -422,8 +418,6 @@ function render(){
   $('spotifyIdNote').textContent = s.spotifyClientIdIsDefault
     ? 'The shipped default, shared by every install. Register your own for a quota of your own.'
     : 'Your own app. Clear the field to go back to the shipped default.';
-  $('tidalClientId').value = s.tidalClientId;
-  $('tidalClientSecret').placeholder = s.tidalClientSecret ? 'unchanged' : 'Not set';
   $('autostart').setAttribute('aria-checked', String(s.autostart));
   $('quality').value = String(s.veryHighQuality); $('logLevel').value = s.logLevel;
 
@@ -603,9 +597,6 @@ $('autostart').onclick = async () => { state = await post('/api/startup', {}); r
 $('serverPort').onchange = () => save({serverPort: $('serverPort').value});
 $('uiPort').onchange = () => save({uiPort: $('uiPort').value});
 $('spotifyClientId').onchange = () => save({spotifyClientId: $('spotifyClientId').value});
-$('tidalClientId').onchange = () => save({tidalClientId: $('tidalClientId').value});
-$('tidalClientSecret').onchange = () => { if($('tidalClientSecret').value)
-  save({tidalClientSecret: $('tidalClientSecret').value}); };
 $('quality').onchange = () => save({veryHighQuality: $('quality').value==='true'});
 $('logLevel').onchange = () => save({logLevel: $('logLevel').value});
 

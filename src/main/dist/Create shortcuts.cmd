@@ -7,7 +7,7 @@ set "APPDIR=%~dp0"
 set "APPDIR=%APPDIR:~0,-1%"
 
 rem WindowStyle 7 is minimized, so the launcher's own console window never shows on screen.
-powershell -NoProfile -Command "$w = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))) { $link = $w.CreateShortcut((Join-Path $dir 'Traktor Streaming Proxy.lnk')); $link.TargetPath = '%APPDIR%\TraktorProxy.cmd'; $link.WorkingDirectory = '%APPDIR%'; $link.IconLocation = '%APPDIR%\traktor-forwarder.ico'; $link.Description = 'Stream Spotify, YouTube and Tidal in Traktor DJ'; $link.WindowStyle = 7; $link.Save() }"
+powershell -NoProfile -Command "$w = New-Object -ComObject WScript.Shell; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))) { $link = $w.CreateShortcut((Join-Path $dir 'Traktor Streaming Proxy.lnk')); $link.TargetPath = '%APPDIR%\TraktorProxy.cmd'; $link.WorkingDirectory = '%APPDIR%'; $link.IconLocation = '%APPDIR%\traktor-forwarder.ico'; $link.Description = 'Stream Spotify and YouTube in Traktor DJ'; $link.WindowStyle = 7; $link.Save() }"
 
 if errorlevel 1 (
     echo Could not create the shortcuts.

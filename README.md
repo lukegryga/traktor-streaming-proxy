@@ -1,6 +1,6 @@
 # traktor-streaming-proxy
 
-Stream Spotify, Tidal and YouTube in Traktor DJ by serving a stand-in for Beatport's API.
+Stream Spotify and YouTube in Traktor DJ by serving a stand-in for Beatport's API.
 
 <img src="screenshot.png" align="right" width="250"></a>
 
@@ -13,7 +13,7 @@ No Docker, no WSL, no Python.
 
 ## Features
 
-- **Three sources.** Spotify (Premium, via librespot), Tidal and YouTube, on or off individually.
+- **Two sources.** Spotify (Premium, via librespot) and YouTube, on or off individually.
 - **Your music in Traktor's browser.** Saved tracks, playlists and followed artists show up as
   Beatport genres, playlists and charts.
 - **Search across providers**, with each result labelled by the source it came from.
@@ -32,8 +32,7 @@ As with real Beatport streaming, Traktor will not let you use its recorder.
   `winget install -e --id EclipseAdoptium.Temurin.21.JRE`. A JRE is enough to run; building needs a JDK.
 - **ffmpeg**, only for Spotify. The control panel finds it and offers to install it, so there is
   nothing to do in advance.
-- **Spotify Premium** for the Spotify source. YouTube needs no account; Tidal needs a subscription
-  and your own API client id and secret.
+- **Spotify Premium** for the Spotify source. YouTube needs no account.
 
 ## Install
 

@@ -1,5 +1,6 @@
 package app
 
+import allSources
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.install
@@ -297,8 +298,6 @@ object ControlPanel {
         "Beatport port" to Settings.serverPort.toString(),
         "Control panel port" to Settings.uiPort.toString(),
         "Spotify client id" to Settings.spotifyClientId,
-        "Tidal client id" to Settings.tidalClientId,
-        "Tidal client secret" to Settings.tidalClientSecret,
     )
 
     private fun apply(body: JsonObject) {
@@ -309,8 +308,6 @@ object ControlPanel {
         body["serverPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.serverPort = it }
         body["uiPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.uiPort = it }
         body["spotifyClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.spotifyClientId = it }
-        body["tidalClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientId = it }
-        body["tidalClientSecret"]?.jsonPrimitive?.contentOrNull?.let { Settings.tidalClientSecret = it }
         body["traktorPath"]?.jsonPrimitive?.contentOrNull?.let { Settings.traktorPath = it }
         body["libraryLimitEnabled"]?.jsonPrimitive?.booleanOrNull?.let { Settings.libraryLimitEnabled = it }
         body["libraryLimitBytes"]?.jsonPrimitive?.longOrNull?.let { Settings.libraryLimitBytes = it }
@@ -384,8 +381,6 @@ object ControlPanel {
             put("accountId", Settings.beatportAccountId)
             put("spotifyClientIdIsDefault", Settings.spotifyClientId == Settings.DEFAULT_SPOTIFY_CLIENT_ID)
             put("spotifyClientId", Settings.spotifyClientId)
-            put("tidalClientId", Settings.tidalClientId)
-            put("tidalClientSecret", if (Settings.tidalClientSecret.isBlank()) "" else "********")
             put("veryHighQuality", Settings.veryHighQuality)
             put("logLevel", Settings.logLevel)
             put("autostart", Startup.isEnabled())
@@ -398,18 +393,22 @@ object ControlPanel {
             put("traktorCacheBytes", cacheBytes)
             put("traktorRunning", TraktorCache.isTraktorRunning())
 
-            val ordered = (Settings.enabledSources + listOf("spotify", "youtube", "tidal")).distinct()
+            // Both lists are filtered to sources this build actually has. A config carried over
+            // from an older version can still name one that has since gone, and it would otherwise
+            // get a row here with no status behind it and throw the move buttons off by one.
+            val enabled = Settings.enabledSources.filter { allSources.containsKey(it) }
+            val ordered = (enabled + allSources.keys).distinct()
             put("providers", buildJsonArray {
                 ordered.forEachIndexed { position, name ->
                     add(buildJsonObject {
                         put("name", name)
-                        put("enabled", Settings.enabledSources.contains(name))
+                        put("enabled", enabled.contains(name))
                         put("state", statuses[name]?.state?.name ?: "IDLE")
                         put("detail", statuses[name]?.detail ?: "")
                         put("signedIn", SourceManager.isSignedIn(name))
                         put("needsSignIn", SourceManager.requiresSignIn(name))
                         put("first", position == 0)
-                        put("last", position == Settings.enabledSources.size - 1)
+                        put("last", position == enabled.size - 1)
                     })
                 }
             })

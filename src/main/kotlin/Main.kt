@@ -24,7 +24,6 @@ import app.TrackIndex
 import app.TrayUi
 import sources.ISource
 import sources.Spotify
-import sources.Tidal
 import sources.Youtube
 import java.io.File
 import java.io.FileInputStream
@@ -34,10 +33,11 @@ import java.util.*
 import kotlin.math.min
 
 
+// Spotify first: it is the order the panel offers sources that are not enabled yet, and the one
+// this build exists for. Registration order comes from the saved list, not from here.
 val allSources = mapOf(
-    "youtube" to Youtube::class.java,
     "spotify" to Spotify::class.java,
-    "tidal" to Tidal::class.java
+    "youtube" to Youtube::class.java
 )
 
 object Config {
