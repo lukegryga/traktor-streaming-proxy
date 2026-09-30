@@ -32,8 +32,19 @@ object Settings {
         set(value) = set("sources.enabled", value.joinToString(","))
 
 
+    /**
+     * A working id so a fresh install reaches Spotify's Web API without registering an app first.
+     * Metadata, playlists and search all go through it, and none of them work without one.
+     *
+     * Shared by everyone who does not replace it, and Spotify meters its quota per client id, so
+     * heavy use is still better served by your own - which is what the panel's field is for. The
+     * fallback also applies to a field the user has cleared: blank means "back to the default"
+     * rather than "no Spotify", because there is nothing useful the blank state could do.
+     */
+    const val DEFAULT_SPOTIFY_CLIENT_ID = "441742ef8b9b43498f0f44f805b84d94"
+
     var spotifyClientId: String
-        get() = prop.getProperty("spotify.clientId", "")
+        get() = prop.getProperty("spotify.clientId", "").ifBlank { DEFAULT_SPOTIFY_CLIENT_ID }
         set(value) = set("spotify.clientId", value.trim())
 
     var tidalClientId: String

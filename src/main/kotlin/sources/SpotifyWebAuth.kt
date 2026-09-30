@@ -1,6 +1,5 @@
 package sources
 
-import Config.prop
 import app.Browser
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
@@ -31,9 +30,9 @@ private const val AUTH_TIMEOUT_MINUTES = 10L
  */
 class SpotifyWebAuth {
 
-    private val clientId: String = prop.getProperty("spotify.clientId")
-        ?.takeIf { it.isNotBlank() && it != "YOUR-CLIENT-ID" }
-        ?: throw IllegalStateException("spotify.clientId is missing from config.properties")
+    // Through Settings rather than the property, so the shipped default applies here too and there
+    // is one answer to which id is in use.
+    private val clientId: String = app.Settings.spotifyClientId
 
     // Beside credentials.json so the same volume keeps both logins across container rebuilds.
     private val refreshTokenFile = app.AppPaths.dataFile("data/spotify-refresh-token")

@@ -58,6 +58,9 @@ input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .bar>i{display:block;height:100%;background:var(--accent)}
 .logs{margin:0;padding:12px 16px;background:var(--bg);border-radius:0 0 var(--radius) var(--radius);
   max-height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+#restartBar{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:11px 14px;
+  border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-bg);color:var(--warn)}
+#restartBar.hide{display:none}
 .note{font-size:12px;padding:10px 12px;border-radius:4px;background:var(--accent-2);color:var(--fg);margin:0 16px 13px}
 dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);color:var(--fg);
   padding:0;max-width:440px;width:calc(100% - 32px)}
@@ -86,6 +89,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <button class="tab" role="tab" aria-selected="false" data-tab="settings">Settings</button>
   </div>
 
+
+  <div id="restartBar" class="hide">
+    <div class="grow"><span id="restartWhy">A change needs a restart</span>
+      <div class="sub" id="restartHint" style="color:inherit;opacity:.85"></div></div>
+    <button class="primary" id="restartNow">Restart now</button>
+  </div>
 
   <section id="providers"><div class="card" id="provList"></div></section>
 
@@ -179,7 +188,8 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </div>
     <div class="card">
       <h2>Credentials</h2>
-      <div class="row"><div class="grow">Spotify client id</div>
+      <div class="row"><div class="grow"><div>Spotify client id</div>
+        <div class="sub" id="spotifyIdNote"></div></div>
         <input id="spotifyClientId" class="mono" style="width:250px"></div>
       <div class="row"><div class="grow">Tidal client id</div>
         <input id="tidalClientId" class="mono" style="width:250px" placeholder="Not set"></div>
@@ -292,17 +302,33 @@ async function awaitRestart(){
   toast('It has not come back yet. Reload this page to check.');
 }
 
-/** Providers are the one thing a restart is needed for, so every one of them routes through here. */
+/** Every provider action lands here: each one needs a restart, which the bar then offers. */
 async function providerChange(path, body){
   const r = await post(path, body);
   toast(r.message);
-  if(r.restarting) awaitRestart(); else load();
+  load();
 }
+
+function drawRestart(s){
+  $('restartBar').classList.toggle('hide', !s.restartNeeded);
+  if(!s.restartNeeded) return;
+  $('restartWhy').textContent = (s.restartReason || 'A change') + ' - it is read when the app starts';
+  $('restartNow').classList.toggle('hide', !s.restartAvailable);
+  $('restartHint').textContent = s.restartAvailable
+    ? 'Takes a few seconds; this page reloads itself when it is back.'
+    : 'Start the app again yourself to apply it.';
+}
+
+$('restartNow').onclick = async () => {
+  const r = await post('/api/restart', {});
+  if(r.restarting) awaitRestart(); else toast(r.message);
+};
 
 async function load(){ state = await (await fetch('/api/state')).json(); render(); }
 
 function render(){
   const s = state;
+  drawRestart(s);
   $('hdr').textContent = 'Listening on ' + s.serverPort + (s.traktorRunning ? ' · Traktor open' : '');
 
   $('provList').innerHTML = s.providers.map(p => {
@@ -393,6 +419,9 @@ function render(){
   if (document.activeElement !== $('traktorPath')) $('traktorPath').value = s.traktorPath;
 
   $('spotifyClientId').value = s.spotifyClientId;
+  $('spotifyIdNote').textContent = s.spotifyClientIdIsDefault
+    ? 'The shipped default, shared by every install. Register your own for a quota of your own.'
+    : 'Your own app. Clear the field to go back to the shipped default.';
   $('tidalClientId').value = s.tidalClientId;
   $('tidalClientSecret').placeholder = s.tidalClientSecret ? 'unchanged' : 'Not set';
   $('autostart').setAttribute('aria-checked', String(s.autostart));
@@ -445,6 +474,7 @@ async function toggleProvider(name){
     'Traktor identifies genres and playlists by position, so changing the provider list shifts every id in its collection. Its Beatport cache has to be cleared so it stops loading the wrong tracks.',
     ["Deletes Traktor's cache for account "+(state.accountId||'unknown'),
      'Requires a Traktor restart',
+     'Takes effect when the proxy restarts, which it will offer',
      'Keeps your downloaded library intact']);
   if(!ok) return;
   await providerChange('/api/provider', {name, enabled:on});

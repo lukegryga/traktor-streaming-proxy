@@ -73,6 +73,8 @@ version = "1.0.3"
 
 val appName = "TraktorProxy"
 
+val stagingDir = layout.buildDirectory.dir("staged/$appName")
+
 /**
  * One artifact: a portable zip of the jars plus the .cmd launchers in src/main/dist.
  *
@@ -84,6 +86,8 @@ val appName = "TraktorProxy"
 distributions {
     main {
         contents {
+            // Held back for the archive only - see portableZip.
+            exclude("portable.txt")
             // For the shortcut the icon has to exist as a file; the tray reads it from the jar.
             from(layout.projectDirectory.file("src/main/resources/traktor-forwarder.ico"))
         }
@@ -96,12 +100,42 @@ distributions {
  * `installDist` would be the obvious home for this, but it refuses to write into a folder with no
  * `bin/<project name>` in it, and the start scripts that would put one there are exactly what this
  * packaging drops. A plain Sync has no such opinion.
+ *
+ * `build/staged` rather than the `build/portable` this used to use: that one was staged with
+ * portable.txt in it, so anyone who ran the app from there had the app write its settings,
+ * credentials and library into a directory that Sync empties on the next build.
  */
-val portableDir by tasks.registering(Sync::class) {
+val portableDir = tasks.register<Sync>("portableDir") {
     group = "distribution"
-    description = "Stages the portable folder in build/portable, ready to run."
-    into(layout.buildDirectory.dir("portable/$appName"))
+    description = "Stages the portable folder in build/staged, ready to run."
+    dependsOn("stagingIsClean")
+    into(stagingDir)
     with(distributions.getByName("main").contents)
+}
+
+/**
+ * Sync deletes whatever it did not put there, which is the right behaviour for build output and the
+ * wrong one for a data folder. Nothing staged makes the app write here any more - without
+ * portable.txt it keeps its data under %LOCALAPPDATA% - but a config.properties dropped in by hand
+ * is enough to change that, so the one case that would cost someone their settings is checked.
+ *
+ * Its own task rather than a doFirst on the staging: Gradle snapshots a task's destination before
+ * running that task's actions, so a check inside it never gets the chance.
+ */
+tasks.register("stagingIsClean") {
+    group = "verification"
+    description = "Refuses to stage over a folder that holds someone's data."
+    val dir = stagingDir
+    doLast {
+        val data = listOf("config.properties", "app.lock", "cert", "data", "library", "logs")
+            .map { dir.get().asFile.resolve(it) }
+            .filter { it.exists() }
+        if (data.isNotEmpty()) throw GradleException(
+            "${dir.get().asFile} holds what looks like a live install (${data.joinToString { it.name }}). " +
+                "Staging would delete it. Quit the app, move that folder somewhere outside build/, " +
+                "and build again."
+        )
+    }
 }
 
 /**
@@ -112,10 +146,13 @@ val portableDir by tasks.registering(Sync::class) {
  * then replaces it in place, and the settings, credentials and library sitting in that folder
  * survive. A versioned folder would land beside it and leave all of that behind.
  */
-val portableZip by tasks.registering(Zip::class) {
+val portableZip = tasks.register<Zip>("portableZip") {
     group = "distribution"
     description = "Builds the portable zip. Needs no runtime, no installer and no WiX."
     from(portableDir) { into(appName) }
+    // Added here and not to the staged folder: this marker is what makes the app keep its data
+    // beside itself, and build output is the one place that must never accumulate any.
+    from(layout.projectDirectory.file("src/main/dist/portable.txt")) { into(appName) }
     archiveFileName = "$appName-$version.zip"
     destinationDirectory = layout.buildDirectory.dir("distributions")
 }

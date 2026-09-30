@@ -36,8 +36,10 @@ No installer, no WiX Toolset, no administrator rights and nothing written outsid
 unzip it into.
 
 For the same folder unzipped, to run or test from, use `gradlew.bat portableDir` and look in
-`build\portable\TraktorProxy`. Keep any folder you actually use outside the repository:
-a rebuild replaces that directory and would take your settings and downloaded tracks with it.
+`build\staged\TraktorProxy`. It is the zip without `portable.txt`, so running it there keeps its
+data under `%LOCALAPPDATA%\TraktorProxy` and a rebuild has nothing of yours to delete. Staging
+refuses outright if it finds settings or a library in that folder, which is what a copy you actually
+use belongs outside the repository for.
 
 ## Install
 
@@ -89,6 +91,11 @@ Traktor can reach the server, and tells you what is missing when it cannot.
   matches the license served here, so the embedded key is swapped. A `.backup` is kept beside the
   executable. Traktor must be closed, and it needs administrator rights.
 
+Ports, credentials, the provider list and a regenerated certificate are all read when the app
+starts, so changing one puts a **Restart now** button at the top of the panel. It is an offer rather
+than something the panel does for you: a restart drops the server Traktor is talking to, and the
+moment for that is yours to pick. The page reloads itself once the app is back.
+
 Everything else is in the panel too, so `config.properties` never needs editing by hand.
 
 ## Where things are stored
@@ -110,15 +117,18 @@ Apps.
 ## Spotify
 
 Audio comes through librespot's own protocol. Metadata, playlists and search go to
-`api.spotify.com`, and Spotify meters that quota per client id. librespot's built in id is shared by
-every user of that library, so metadata calls made with it are rate limited no matter how little you
-ask for: `429 API rate limit exceeded` on a single cold request, and *could not retrieve content* in
-Traktor. Your own app id gives you a quota that is yours.
+`api.spotify.com`, and Spotify meters that quota per client id. This build ships one, so Spotify
+works out of the box and **Settings, Credentials** shows which id is in use.
+
+That default is shared by every install of this app, and a shared id is a shared quota: heavy use
+can meet `429 API rate limit exceeded` on a single cold request, which Traktor reports as *could not
+retrieve content*. Registering your own takes two minutes and the quota is then yours alone.
 
 1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). Free,
    no review. Tick **Web API**.
 2. Add exactly this redirect URI: `http://127.0.0.1:5589/callback`
 3. Put the client id into **Settings, Credentials**. There is no secret to store; the flow uses PKCE.
+   Clearing the field again falls back to the shipped default.
 
 Enable Spotify under **Providers**. Two browser logins open on first start, one for librespot and one
 for your app. Both are remembered, so it happens once.

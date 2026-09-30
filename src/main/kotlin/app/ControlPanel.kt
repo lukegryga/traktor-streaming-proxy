@@ -102,7 +102,12 @@ object ControlPanel {
                 post("/api/certificate/regenerate") {
                     val outcome = Certificates.regenerate()
                     call.respondText(
-                        outcome.fold({ result(true, it) }, { result(false, it.message ?: "Failed") }),
+                        outcome.fold(
+                            // The HTTPS server is holding the keystore it was started with, so the
+                            // new certificate is trusted by Windows but not yet the one served.
+                            { needsRestart("Certificate regenerated", it) },
+                            { result(false, it.message ?: "Failed") }
+                        ),
                         ContentType.Application.Json
                     )
                 }
@@ -145,9 +150,27 @@ object ControlPanel {
                     if (name == "spotify") {
                         AppPaths.data("data/credentials.json").delete()
                         AppPaths.data("data/spotify-refresh-token").delete()
-                        call.respondText(result(true, "Signed out, restart to sign in again"), ContentType.Application.Json)
+                        call.respondText(
+                            needsRestart("Signed out of Spotify", "Signed out. The login happens at startup."),
+                            ContentType.Application.Json
+                        )
                     } else {
                         call.respondText(result(false, "Nothing to sign out of"), ContentType.Application.Json)
+                    }
+                }
+
+                post("/api/restart") {
+                    if (!Restart.isAvailable()) {
+                        call.respondText(
+                            result(false, "No launcher to restart through; start the app again by hand."),
+                            ContentType.Application.Json
+                        )
+                    } else {
+                        // Answered before the process goes: schedule() hands back immediately and
+                        // leaves a moment for this reply to reach the browser.
+                        Restart.schedule()
+                        restartReason = null
+                        call.respondText(result(true, "Restarting now.", restarting = true), ContentType.Application.Json)
                     }
                 }
 
@@ -196,18 +219,36 @@ object ControlPanel {
         }.toString()
     }
 
-    private fun result(ok: Boolean, message: String, restarting: Boolean = false) =
-        buildJsonObject { put("ok", ok); put("message", message); put("restarting", restarting) }.toString()
+    private fun result(
+        ok: Boolean,
+        message: String,
+        restarting: Boolean = false,
+        restartNeeded: Boolean = false,
+    ) = buildJsonObject {
+        put("ok", ok)
+        put("message", message)
+        put("restarting", restarting)
+        put("restartNeeded", restartNeeded)
+    }.toString()
 
     /**
-     * Sources are registered once at startup, so a change to the list only takes effect on the
-     * next one. Asking the user to do that by hand was one more thing to forget between changing
-     * a provider and wondering why nothing happened.
+     * What has been changed that only startup reads, held until the restart it asks for happens.
+     *
+     * Held rather than worked out on demand: the moment the setting is saved this process looks
+     * exactly like one that always had the new value, so the only code that can know a restart is
+     * owed is the code that made the change. Keeping it here also means the offer survives a page
+     * reload, and a forgotten restart is what makes a setting look like it did nothing.
      */
-    private fun restartFor(message: String): String {
-        if (!Restart.isAvailable()) return result(true, "$message Restart the app to apply it.")
-        Restart.schedule()
-        return result(true, "$message Restarting now.", restarting = true)
+    private var restartReason: String? = null
+
+    /**
+     * Offered rather than taken. Sources, ports and credentials are all read once at startup, so a
+     * change to any of them needs one - but a restart drops the server Traktor is talking to, and
+     * choosing the moment for that belongs to whoever is stood in front of Traktor.
+     */
+    private fun needsRestart(reason: String, message: String): String {
+        restartReason = reason
+        return result(true, message, restartNeeded = true)
     }
 
     private fun setProvider(name: String, enabled: Boolean): String {
@@ -222,7 +263,7 @@ object ControlPanel {
         // The cache has to go either way: ids shift when the list changes length in either direction.
         val cleared = TraktorCache.clear()
         return cleared.fold(
-            { restartFor("Saved, and Traktor's cache was cleared.") },
+            { needsRestart("Providers changed", "Saved, and Traktor's cache was cleared.") },
             { result(false, "Saved, but ${it.message}") }
         )
     }
@@ -242,12 +283,29 @@ object ControlPanel {
         Settings.enabledSources = order
 
         return TraktorCache.clear().fold(
-            { restartFor("Reordered, and Traktor's cache was cleared.") },
+            { needsRestart("Provider order changed", "Reordered, and Traktor's cache was cleared.") },
             { result(false, "Reordered, but ${it.message}") }
         )
     }
 
+    /**
+     * Read once at startup and nowhere else, so the running process keeps the value it began with
+     * until it is restarted. Audio quality, log level, the library and the Traktor path are all read
+     * per use and deliberately absent.
+     */
+    private fun startupOnly(): Map<String, String> = mapOf(
+        "Beatport port" to Settings.serverPort.toString(),
+        "Control panel port" to Settings.uiPort.toString(),
+        "Spotify client id" to Settings.spotifyClientId,
+        "Tidal client id" to Settings.tidalClientId,
+        "Tidal client secret" to Settings.tidalClientSecret,
+    )
+
     private fun apply(body: JsonObject) {
+        // Compared before and after rather than taken from the request: the panel sends a field on
+        // every save, and offering a restart that would change nothing teaches the user to ignore it.
+        val before = startupOnly()
+
         body["serverPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.serverPort = it }
         body["uiPort"]?.jsonPrimitive?.intOrNullSafe()?.let { Settings.uiPort = it }
         body["spotifyClientId"]?.jsonPrimitive?.contentOrNull?.let { Settings.spotifyClientId = it }
@@ -264,6 +322,9 @@ object ControlPanel {
         if (body.containsKey("libraryLimitEnabled") || body.containsKey("libraryLimitBytes")) {
             Library.enforceLimit()
         }
+
+        val changed = startupOnly().filterNot { (key, value) -> before[key] == value }.keys
+        if (changed.isNotEmpty()) restartReason = changed.joinToString(", ") + " changed"
     }
 
     private fun JsonPrimitive.intOrNullSafe(): Int? = contentOrNull?.toIntOrNull()
@@ -315,7 +376,13 @@ object ControlPanel {
                 put("healthy", cert.healthy)
                 put("problem", cert.problem ?: "")
             })
+            put("restartNeeded", restartReason != null)
+            put("restartReason", restartReason ?: "")
+            // False under Gradle, where there is no launcher to start again; the panel then asks for
+            // the restart to be done by hand rather than offering a button that cannot work.
+            put("restartAvailable", Restart.isAvailable())
             put("accountId", Settings.beatportAccountId)
+            put("spotifyClientIdIsDefault", Settings.spotifyClientId == Settings.DEFAULT_SPOTIFY_CLIENT_ID)
             put("spotifyClientId", Settings.spotifyClientId)
             put("tidalClientId", Settings.tidalClientId)
             put("tidalClientSecret", if (Settings.tidalClientSecret.isBlank()) "" else "********")
