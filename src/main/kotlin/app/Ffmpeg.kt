@@ -43,6 +43,12 @@ object Ffmpeg {
     /** What to invoke. Falls back to the bare name so the failure still reads as an ffmpeg one. */
     fun executable(): String = locate()?.absolutePath ?: "ffmpeg"
 
+    /**
+     * Whether a copy is there to be run. Separate from [state] because that probes the version,
+     * and a source deciding whether it can tag a file wants the question answered for free.
+     */
+    fun isAvailable(): Boolean = locate() != null
+
     fun state(): FfmpegState {
         val found = locate()
         return FfmpegState(

@@ -1,7 +1,10 @@
 package sources
 
+import app.Downloads
+import app.Library
 import beatport.api.Playlist
 import beatport.api.Track
+import java.io.File
 
 interface ISource {
     /**
@@ -45,9 +48,24 @@ interface ISource {
     fun query(query: String, reset: Boolean): List<Track>
 
     /**
-     * Download music track data (must be in mp4 format)
+     * Fetches the track and puts it in the library, returning the file it landed in. The file must
+     * be mp4, which is the one container Traktor's streaming path accepts.
+     *
+     * Only ever called on a library miss, and never twice at once for the same track, so an
+     * implementation needs neither a cache check of its own nor any locking - see [download].
      */
-    fun download(id: String): ByteArray
+    fun fetch(id: String): File
+
+    /**
+     * The library file to serve Traktor. A hit costs a stat, a miss goes to [fetch].
+     *
+     * Serialised per track, with the library checked again inside the lock: Traktor loads decks
+     * independently, so a second deck asking for a track the first is still fetching waits here
+     * and then reads the finished file rather than fetching it a second time into the same place.
+     */
+    fun download(id: String): File = Downloads.serialised(libraryKey(id)) {
+        Library.cached(libraryKey(id))?.also { println("Serving $id from the library") } ?: fetch(id)
+    }
 
     /**
      * Key this track is filed under in the shared library. Prefixed by source because ids are only

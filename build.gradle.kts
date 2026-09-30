@@ -16,6 +16,9 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation:$ktor_version")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor_version")
     implementation("io.ktor:ktor-server-call-logging:$ktor_version")
+    // Range requests on the track download. Traktor asks for a byte range rather than the whole
+    // file, and without this every load is all-or-nothing.
+    implementation("io.ktor:ktor-server-partial-content:$ktor_version")
     implementation("io.ktor:ktor-network-tls-certificates:$ktor_version")
     implementation("org.slf4j:slf4j-log4j12:2.0.6")
 
@@ -42,6 +45,7 @@ dependencies {
     implementation("com.github.0xf4b1:spotify-kt:275f290e64")
 
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-server-test-host:$ktor_version")
     implementation(kotlin("stdlib-jdk8"))
 }
 

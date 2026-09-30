@@ -1,6 +1,7 @@
 package sources
 
 import com.google.protobuf.InvalidProtocolBufferException
+import app.Audio
 import app.Browser
 import app.Library
 import app.OAuthCallback
@@ -164,12 +165,7 @@ class Spotify : ISource {
         return tracks["items"]?.jsonArray?.mapNotNull { trackFrom(it.jsonObject) } ?: emptyList()
     }
 
-    override fun download(id: String): ByteArray {
-        Library.cached(libraryKey(id))?.let {
-            println("Serving $id from the library")
-            return it.readBytes()
-        }
-
+    override fun fetch(id: String): File {
         // librespot's session drops and reconnects roughly every two minutes, and takes ten
         // seconds to recover when the socket resets. A load landing in that window fails
         // outright, which mid-set means a deck that will not load.
@@ -187,7 +183,7 @@ class Spotify : ISource {
     }
 
     /** Streams the track, tags it with what Spotify knows about it, and keeps the result. */
-    private fun store(id: String): ByteArray {
+    private fun store(id: String): File {
         val track = metadata(id)
         val title = track?.get("name")?.jsonPrimitive?.contentOrNull
         val artist = track?.get("artists")?.jsonArray
@@ -201,7 +197,9 @@ class Spotify : ISource {
             val streamed = System.currentTimeMillis()
             streamOgg(id, ogg)
             val transcoded = System.currentTimeMillis()
-            transcode(ogg, cover, track, target)
+            // The source is 320kbps Vorbis, so the AAC stage is matched to it rather than left at
+            // the encoder default of roughly 128k, which threw away most of what VERY_HIGH buys.
+            Audio.write(ogg, cover, listOf("-c:a", "aac", "-b:a", "320k"), tags(track), target)
             val done = System.currentTimeMillis()
 
             Library.register(libraryKey(id), target.name)
@@ -211,7 +209,7 @@ class Spotify : ISource {
                 "Stored ${target.name} (stream ${transcoded - streamed}ms, convert ${done - transcoded}ms); " +
                     "library holds $count tracks, ${bytes / 1024 / 1024} MB"
             )
-            return target.readBytes()
+            return target
         } finally {
             ogg.delete()
             cover?.delete()
@@ -235,60 +233,31 @@ class Spotify : ISource {
             .onFailure { println("No metadata for $id: ${it.message}") }
             .getOrNull()
 
-    private fun coverArt(track: JsonObject): File? = runCatching {
+    private fun coverArt(track: JsonObject): File? {
         // images are ordered widest first, which is the one worth embedding
         val url = track["album"]?.jsonObject?.get("images")?.jsonArray
             ?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull ?: return null
-        val file = File.createTempFile("cover-", ".jpg")
-        java.net.URI(url).toURL().openStream().use { input -> file.outputStream().use { input.copyTo(it) } }
-        file
-    }.onFailure { println("No cover art: ${it.message}") }.getOrNull()
-
-    private fun transcode(ogg: File, cover: File?, track: JsonObject?, target: File) {
-        // Resolved rather than left to PATH, so a copy installed from the panel works without a
-        // restart: this process inherited its PATH before that install ran.
-        val command = mutableListOf(app.Ffmpeg.executable(), "-y", "-i", ogg.absolutePath)
-        if (cover != null) command.addAll(listOf("-i", cover.absolutePath))
-
-        command.addAll(listOf("-map", "0:a"))
-        if (cover != null) {
-            command.addAll(listOf("-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic"))
-        }
-        // The source is 320kbps Vorbis, so the AAC stage is matched to it rather than left at the
-        // encoder default of roughly 128k, which threw away most of what VERY_HIGH buys.
-        command.addAll(listOf("-c:a", "aac", "-b:a", "320k"))
-
-        track?.let { command.addAll(tags(it)) }
-        command.add(target.absolutePath)
-
-        val proc = ProcessBuilder(command).redirectErrorStream(true).start()
-        val output = proc.inputStream.bufferedReader().use { it.readText() }
-        if (proc.waitFor() != 0) {
-            target.delete()
-            throw IllegalStateException("ffmpeg failed: ${output.takeLast(500)}")
-        }
+        return Audio.cover(url)
     }
 
-    private fun tags(track: JsonObject): List<String> {
+    private fun tags(track: JsonObject?): Map<String, String?> {
+        if (track == null) return emptyMap()
         val album = track["album"]?.jsonObject
         val artists = track["artists"]?.jsonArray
             ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
             ?.joinToString(", ")
 
-        return buildList {
-            fun tag(key: String, value: String?) {
-                if (!value.isNullOrBlank()) addAll(listOf("-metadata", "$key=$value"))
-            }
-            tag("title", track["name"]?.jsonPrimitive?.contentOrNull)
-            tag("artist", artists)
-            tag("album", album?.get("name")?.jsonPrimitive?.contentOrNull)
-            tag("album_artist", album?.get("artists")?.jsonArray
+        return buildMap {
+            put("title", track["name"]?.jsonPrimitive?.contentOrNull)
+            put("artist", artists)
+            put("album", album?.get("name")?.jsonPrimitive?.contentOrNull)
+            put("album_artist", album?.get("artists")?.jsonArray
                 ?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
-            tag("date", album?.get("release_date")?.jsonPrimitive?.contentOrNull)
-            tag("track", track["track_number"]?.jsonPrimitive?.contentOrNull)
-            tag("disc", track["disc_number"]?.jsonPrimitive?.contentOrNull)
-            tag("isrc", track["external_ids"]?.jsonObject?.get("isrc")?.jsonPrimitive?.contentOrNull)
-            tag("comment", track["uri"]?.jsonPrimitive?.contentOrNull)
+            put("date", album?.get("release_date")?.jsonPrimitive?.contentOrNull)
+            put("track", track["track_number"]?.jsonPrimitive?.contentOrNull)
+            put("disc", track["disc_number"]?.jsonPrimitive?.contentOrNull)
+            put("isrc", track["external_ids"]?.jsonObject?.get("isrc")?.jsonPrimitive?.contentOrNull)
+            put("comment", track["uri"]?.jsonPrimitive?.contentOrNull)
         }
     }
 

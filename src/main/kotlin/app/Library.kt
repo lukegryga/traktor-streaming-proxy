@@ -85,23 +85,29 @@ object Library {
     }
 
     /**
-     * Keeps [bytes] and hands them straight back. A source that cannot write to the library still
-     * loads the track: being unable to cache it is not a reason to fail the deck.
+     * Keeps [bytes] and hands back the file they landed in.
      */
-    fun store(trackId: String, title: String?, artist: String?, bytes: ByteArray): ByteArray {
+    fun store(trackId: String, title: String?, artist: String?, bytes: ByteArray): File {
         val target = prepare(trackId, title, artist)
-        runCatching {
+        return runCatching {
             target.writeBytes(bytes)
             register(trackId, target.name)
             enforceLimit()
             val (count, total) = stats()
             println("Stored ${target.name}; library holds $count tracks, ${total / 1024 / 1024} MB")
+            target
         }.onFailure {
             target.delete()
             println("Could not keep $trackId in the library: ${it.message}")
-        }
-        return bytes
+        }.getOrElse { unkept(bytes) }
     }
+
+    /**
+     * A track the library would not take is still served, from a file outside it that goes when
+     * the process does: being unable to cache it is not a reason to fail the deck.
+     */
+    private fun unkept(bytes: ByteArray): File =
+        File.createTempFile("unkept-", ".mp4").apply { deleteOnExit(); writeBytes(bytes) }
 
     /**
      * Returns null when the track has to be fetched, including when the index names a file that has

@@ -1,5 +1,7 @@
 package sources
 
+import app.Audio
+import app.Ffmpeg
 import app.Library
 import beatport.api.*
 import org.schabi.newpipe.extractor.*
@@ -7,7 +9,9 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.VIDEOS
+import org.schabi.newpipe.extractor.stream.StreamExtractor
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.io.File
 import java.net.URL
 import java.util.*
 
@@ -71,29 +75,68 @@ class Youtube : ISource {
     }
 
     /**
-     * Kept in the library like every other source. The m4a YouTube serves is already an mp4
-     * container, so unlike Spotify's Ogg there is nothing to convert and no ffmpeg involved.
+     * Kept in the library like every other source. The m4a YouTube serves is already AAC in an mp4
+     * container, so where Spotify re-encodes, this only ever remuxes - and it does that solely to
+     * attach the title, channel and thumbnail, which the raw download carries none of.
+     *
+     * Without ffmpeg the bytes are stored exactly as they arrived. YouTube is the source that needs
+     * no account and no setup at all, and tags are not worth giving that up for.
      */
-    override fun download(id: String): ByteArray {
-        Library.cached(libraryKey(id))?.let {
-            println("Serving $id from the library")
-            return it.readBytes()
-        }
-
-        // The page is fetched once for both the stream url and the title, so the library file is
-        // named after the video rather than after its id.
+    override fun fetch(id: String): File {
+        // The page is fetched once for the stream url, the title and the thumbnail, so the library
+        // file is named after the video rather than after its id.
         val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$id")
         extractor.fetchPage()
         val stream = extractor.audioStreams
             .filter { it.format!!.name == "m4a" }
             .maxBy { it.averageBitrate }
 
-        return Library.store(
-            libraryKey(id),
-            extractor.name,
-            runCatching { extractor.uploaderName }.getOrNull(),
-            downloadTrack(stream.content)
-        )
+        val key = libraryKey(id)
+        val title = extractor.name
+        val uploader = runCatching { extractor.uploaderName }.getOrNull()
+        val bytes = downloadTrack(stream.content)
+
+        if (!Ffmpeg.isAvailable()) return Library.store(key, title, uploader, bytes)
+
+        val downloaded = File.createTempFile("track-", ".m4a").apply { writeBytes(bytes) }
+        val cover = thumbnail(extractor)
+        val target = Library.prepare(key, title, uploader)
+        return try {
+            Audio.write(downloaded, cover, listOf("-c:a", "copy"), tags(extractor, id), target)
+            Library.register(key, target.name)
+            Library.enforceLimit()
+            val (count, total) = Library.stats()
+            println("Stored ${target.name}; library holds $count tracks, ${total / 1024 / 1024} MB")
+            target
+        } catch (ex: Exception) {
+            // The audio is already downloaded and plays the same untagged, so a failed remux costs
+            // the tags rather than the track.
+            println("Could not tag $id (${ex.message}); keeping it as downloaded")
+            Library.store(key, title, uploader, bytes)
+        } finally {
+            downloaded.delete()
+            cover?.delete()
+        }
+    }
+
+    /**
+     * The widest thumbnail, preferring a jpg: YouTube serves webp as well, which ffmpeg only
+     * decodes when it was built with libwebp.
+     */
+    private fun thumbnail(extractor: StreamExtractor): File? {
+        val images = runCatching { extractor.thumbnails }.getOrNull().orEmpty()
+        val best = images.filter { it.url.contains(".jpg") }.maxByOrNull { it.width }
+            ?: images.maxByOrNull { it.width }
+        return best?.url?.let { Audio.cover(it) }
+    }
+
+    private fun tags(extractor: StreamExtractor, id: String): Map<String, String?> = buildMap {
+        put("title", runCatching { extractor.name }.getOrNull())
+        // The channel is the nearest thing YouTube has to an artist, and it is already what the
+        // library file is named after.
+        put("artist", runCatching { extractor.uploaderName }.getOrNull())
+        put("date", runCatching { extractor.uploadDate?.offsetDateTime()?.toLocalDate()?.toString() }.getOrNull())
+        put("comment", "https://www.youtube.com/watch?v=$id")
     }
 
     private fun downloadTrack(path: String): ByteArray {
