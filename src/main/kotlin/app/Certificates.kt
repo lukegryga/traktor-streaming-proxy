@@ -1,6 +1,7 @@
 package app
 
 import io.ktor.network.tls.certificates.buildKeyStore
+import io.ktor.network.tls.extensions.HashAlgorithm
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -39,6 +40,12 @@ object Certificates {
 
         val problem = when {
             !subjectNames(cert).contains(HOST) -> "Not valid for $HOST"
+            // Ktor stamps SHA-1 unless told otherwise. Modern clients do not offer SHA-1 among the
+            // certificate signature algorithms they accept, so the server finds no usable
+            // certificate and aborts the handshake before it ever sends one; the browser Traktor
+            // opens for the Beatport login shows ERR_SSL_PROTOCOL_ERROR. Treated as unhealthy so
+            // an install carrying an old certificate replaces it on the next start.
+            cert.sigAlgName.contains("SHA1", ignoreCase = true) -> "Signed with SHA-1"
             cert.notAfter.time < System.currentTimeMillis() -> "Expired"
             !isTrusted(cert) -> "Not trusted by Windows"
             else -> null
@@ -78,6 +85,7 @@ object Certificates {
                 domains = listOf(HOST)
                 daysValid = VALID_DAYS
                 keySizeInBits = 4096
+                hash = HashAlgorithm.SHA256
                 // Without this ktor stamps CN=localhost, OU=Kotlin, O=JetBrains, which is both
                 // unidentifiable in certmgr and useless for finding our own old certificates.
                 subject = X500Principal("CN=$HOST")
