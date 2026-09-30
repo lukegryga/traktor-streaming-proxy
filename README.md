@@ -1,6 +1,6 @@
 # traktor-streaming-proxy
 
-Stream Spotify, YouTube and Tidal in Traktor DJ by serving a stand-in for Beatport's API.
+Stream Spotify, Tidal and YouTube in Traktor DJ by serving a stand-in for Beatport's API.
 
 <img src="screenshot.png" align="right" width="250"></a>
 
@@ -8,148 +8,66 @@ Traktor supports streaming, but only from Beatport and Beatsource. This is an HT
 answers the parts of the Beatport API Traktor uses, backed by other sources. It ships a crafted
 Beatport license, so no Beatport account or subscription is needed.
 
-This branch runs natively on Windows: a JVM application with a tray icon and a control panel in the
-browser. There is no Docker, no WSL and no Python.
+This branch runs natively on Windows: a JVM app with a tray icon and a control panel in the browser.
+No Docker, no WSL, no Python.
+
+## Features
+
+- **Three sources.** Spotify (Premium, via librespot), Tidal and YouTube, on or off individually.
+- **Your music in Traktor's browser.** Saved tracks, playlists and followed artists show up as
+  Beatport genres, playlists and charts.
+- **Search across providers**, with each result labelled by the source it came from.
+- **A cached library.** Tracks are converted once, tagged, given album art and kept, so loading one
+  again is a file read. Size-capped, least-recently-played first out.
+- **Self-configuring.** The control panel generates and trusts the TLS certificate, fixes the hosts
+  file, installs ffmpeg and patches Traktor for you, and tells you what is still missing.
+- **Portable.** Unzip and run. Settings, credentials and library stay in that one folder.
 
 As with real Beatport streaming, Traktor will not let you use its recorder.
 
 ## Requirements
 
-- Windows
-- Java 17 or newer, [Temurin](https://adoptium.net/) or Oracle. There is no bundled runtime, so
-  this is the one thing to install first: `winget install -e --id EclipseAdoptium.Temurin.21.JRE`.
-  A JRE is enough to run it; building needs a JDK.
-- [ffmpeg](https://www.gyan.dev/ffmpeg/builds/), used to convert what Spotify streams into the
-  format Traktor accepts. The control panel finds it and offers to install it, so there is nothing
-  to do by hand; `winget install -e --id Gyan.FFmpeg` is the same thing from a terminal.
-- Spotify Premium, for the Spotify source
-- Traktor Pro 4
-
-## Build
-
-```
-gradlew.bat portableZip
-```
-
-Produces one file, `build\distributions\TraktorProxy-1.0.3.zip`, about 23 MB and all of it jars.
-No installer, no WiX Toolset, no administrator rights and nothing written outside the folder you
-unzip it into.
-
-For the same folder unzipped, to run or test from, use `gradlew.bat portableDir` and look in
-`build\staged\TraktorProxy`. It is the zip without `portable.txt`, so running it there keeps its
-data under `%LOCALAPPDATA%\TraktorProxy` and a rebuild has nothing of yours to delete. Staging
-refuses outright if it finds settings or a library in that folder, which is what a copy you actually
-use belongs outside the repository for.
+- Windows, and Traktor Pro 4
+- **Java 17 or newer** — the one thing to install by hand, as no runtime is bundled:
+  `winget install -e --id EclipseAdoptium.Temurin.21.JRE`. A JRE is enough to run; building needs a JDK.
+- **ffmpeg**, only for Spotify. The control panel finds it and offers to install it, so there is
+  nothing to do in advance.
+- **Spotify Premium** for the Spotify source. YouTube needs no account; Tidal needs a subscription
+  and your own API client id and secret.
 
 ## Install
 
-Unzip anywhere you can write to, for example `C:\TraktorProxy`, and that folder is the whole
-application. Then, once:
+1. Unzip the release anywhere you can write to, for example `C:\TraktorProxy`. That folder is the
+   whole application.
+2. Optionally run **`Create shortcuts.cmd`** once, for a desktop and Start menu shortcut.
+3. Start it from the shortcut or `TraktorProxy.cmd`. A tray icon appears; there is no console window.
+   Use `TraktorProxy-console.cmd` to watch the output if the tray icon never shows up.
+4. Open the control panel at **http://127.0.0.1:8088**, from the tray menu or your browser, and go
+   to **Settings**. The installation section is green when Traktor can reach the server, and offers
+   a fix for anything that is not:
+   - **Certificate** — generated for `api.beatport.com` and added to your trusted roots. Automatic.
+   - **Hosts file** — points `api.beatport.com` at this machine. Needs administrator rights.
+   - **ffmpeg** — one **Install** button, no restart needed afterwards.
+   - **Traktor patch** — swaps the license key Traktor checks with the one this server matches.
+     Traktor must be closed, and it needs administrator rights. A `.backup` is kept.
+5. Enable your sources under **Providers**. Spotify opens two browser logins on first start, which
+   are then remembered.
 
-- **`Create shortcuts.cmd`** puts a *Traktor Streaming Proxy* shortcut with the app icon on the
-  desktop and in the Start menu. Optional; run it again if you move the folder.
+Changing ports, credentials, the provider list or the certificate puts a **Restart now** button at
+the top of the panel — an offer, since a restart drops the server Traktor is talking to.
 
-To **upgrade**, unzip a newer release over the folder. Only `lib\` and the launchers are replaced,
-and the folder inside the archive carries no version so it lands in the same place. Your settings,
-credentials and library sit beside them and survive.
+**Upgrade** by unzipping a newer release over the folder: only `lib\` and the launchers are replaced.
+**Uninstall** by turning off *Start with Windows*, quitting and deleting the folder; the hosts entry
+and the root certificate are the two things left outside it.
 
-To **uninstall**, turn off *Start with Windows* in the tray menu, quit, and delete the folder. Two
-things live outside it: the `api.beatport.com` line in `C:\Windows\System32\drivers\etc\hosts`, and
-the generated root certificate under *Manage user certificates*, *Trusted Root Certification
-Authorities*.
+## Activate it in Traktor
 
-## Run
+With the proxy running and the setup green:
 
-Start it from the shortcut, or run `TraktorProxy.cmd`. There is no console window; the one the
-launcher itself opens closes within a moment. Use `TraktorProxy-console.cmd` when you want to watch
-the output, which is the thing to reach for when the tray icon never appears.
-
-The launcher finds Java through `JAVA_HOME` first and `PATH` second, and says so plainly when there
-is none or when what it finds is older than 17.
-
-A tray icon appears; everything else is in the control panel at **http://127.0.0.1:8088**, also
-reachable from the tray menu.
-
-The tray menu lists each provider with a coloured dot, warns when the setup is incomplete, and
-opens the control panel or the music folder. Everything else is in the panel: the log is its **Logs**
-tab and *Start with Windows* is in **Settings**.
-
-## Setup
-
-The control panel does the setup itself. Open **Settings**; the installation section is green when
-Traktor can reach the server, and tells you what is missing when it cannot.
-
-- **Certificate.** Traktor talks to `api.beatport.com` over TLS and validates through Schannel,
-  which builds its chain from the Windows certificate stores. A certificate for that name is
-  generated, added to your trusted roots and checked at every start. Superseded ones are removed.
-- **Hosts file.** `api.beatport.com` has to resolve to this machine. The entry is added if missing;
-  because that file needs administrator rights, the panel offers a fix that asks for them.
-- **ffmpeg.** Only Spotify needs it, so the row is a warning rather than a failure until Spotify is
-  enabled. When it is missing there is an **Install** button that runs winget in the background; the
-  panel reports when it finishes, and the converted path picks it up without a restart.
-- **Traktor patch.** Traktor checks the license with a platform specific key, and only the macOS one
-  matches the license served here, so the embedded key is swapped. A `.backup` is kept beside the
-  executable. Traktor must be closed, and it needs administrator rights.
-
-Ports, credentials, the provider list and a regenerated certificate are all read when the app
-starts, so changing one puts a **Restart now** button at the top of the panel. It is an offer rather
-than something the panel does for you: a restart drops the server Traktor is talking to, and the
-moment for that is yours to pick. The page reloads itself once the app is back.
-
-Everything else is in the panel too, so `config.properties` never needs editing by hand.
-
-## Where things are stored
-
-Settings, the certificate, credentials, logs and the track library all live in the app folder, next
-to the launchers. That is what `portable.txt` in there means: delete it and the data folder moves to
-`%LOCALAPPDATA%\TraktorProxy` instead, which is also where a `gradlew.bat run` writes since there is
-no app folder to use. `-Dtraktorproxy.dataDir=...` overrides both, which is how to run a second copy.
-
-`config.properties.example` is documentation and is never read. The real `config.properties` is
-written by the panel on first save, so nothing needs editing by hand and an upgrade cannot overwrite
-what you have set.
-
-**Coming from the old installer build**, which kept its data in `%LOCALAPPDATA%\TraktorProxy`: copy
-`config.properties`, `cert`, `data` and `library` from there into the new folder before the first
-start, or delete `portable.txt` to go on using that location. Uninstall the old one from Settings,
-Apps.
-
-## Spotify
-
-Audio comes through librespot's own protocol. Metadata, playlists and search go to
-`api.spotify.com`, and Spotify meters that quota per client id. This build ships one, so Spotify
-works out of the box and **Settings, Credentials** shows which id is in use.
-
-That default is shared by every install of this app, and a shared id is a shared quota: heavy use
-can meet `429 API rate limit exceeded` on a single cold request, which Traktor reports as *could not
-retrieve content*. Registering your own takes two minutes and the quota is then yours alone.
-
-1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). Free,
-   no review. Tick **Web API**.
-2. Add exactly this redirect URI: `http://127.0.0.1:5589/callback`
-3. Put the client id into **Settings, Credentials**. There is no secret to store; the flow uses PKCE.
-   Clearing the field again falls back to the shipped default.
-
-Enable Spotify under **Providers**. Two browser logins open on first start, one for librespot and one
-for your app. Both are remembered, so it happens once.
-
-A registered app in development mode cannot read Spotify's own editorial playlists, which is why
-Release Radar and the Top 100 category are empty. Your playlists, saved tracks, followed artists and
-search all work.
-
-## Library
-
-Tracks are converted once and kept, so loading the same track again costs a file read rather than a
-download. They are named after the track, tagged with the metadata Spotify holds, and carry the
-album art.
-
-**Settings, Library** has the size limit, 10 GB by default and switchable off. When it is reached the
-least recently played tracks are removed. The folder can be moved from there and the files follow.
-
-## Library mapping
-
-Beatport Streaming has fixed categories, which are matched to the sources as closely as they allow.
-The genres are identical in each category, so they are used to tell the sources apart.
+1. Start Traktor and open **Preferences**, **Streaming**.
+2. Click **Login on Beatport**. The browser opens and comes straight back — there is no form and no
+   account to type, the proxy approves it. If Traktor was started before the proxy, click it again.
+3. **Beatport** appears in the browser tree. Load tracks from it as you would from Beatport:
 
 ```
 Curated Playlists
@@ -167,8 +85,54 @@ Top 100
  - <Tracks>        --> generated playlist of new released tracks
 ```
 
-Enabling or disabling a source shifts these ids, so Traktor's Beatport cache is cleared when you do
-and Traktor has to be restarted. The panel says so before it happens.
+Enabling or disabling a source shifts these ids, so Traktor's Beatport cache has to be cleared and
+Traktor restarted. The panel does the clearing and warns you first.
+
+## Spotify
+
+Audio comes through librespot's protocol; metadata, playlists and search go to `api.spotify.com`,
+where Spotify meters the quota per client id. This build ships one, so Spotify works out of the box.
+
+That id is shared by every install, and a shared id is a shared quota: heavy use can meet
+`429 API rate limit exceeded`, which Traktor reports as *could not retrieve content*. Registering
+your own takes two minutes and the quota is then yours alone:
+
+1. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) —
+   free, no review. Tick **Web API**.
+2. Add exactly this redirect URI: `http://127.0.0.1:5589/callback`
+3. Put the client id into **Settings, Credentials**. There is no secret to store; the flow uses PKCE.
+   Clearing the field falls back to the shipped default.
+
+A registered app in development mode cannot read Spotify's editorial playlists, which is why Release
+Radar and the Top 100 category stay empty. Your playlists, saved tracks, followed artists and search
+all work.
+
+## Where things are stored
+
+Settings, the certificate, credentials, logs and the library all live in the app folder, next to the
+launchers. That is what `portable.txt` means: delete it and the data moves to
+`%LOCALAPPDATA%\TraktorProxy`, which is also where `gradlew.bat run` writes.
+`-Dtraktorproxy.dataDir=...` overrides both, for running a second copy.
+
+The panel writes `config.properties` itself, so it never needs editing by hand and an upgrade cannot
+overwrite your settings. `config.properties.example` is documentation and is never read.
+
+**Coming from the old installer build**, which kept data in `%LOCALAPPDATA%\TraktorProxy`: copy
+`config.properties`, `cert`, `data` and `library` into the new folder before the first start, or
+delete `portable.txt` to keep using that location. Uninstall the old one from Settings, Apps.
+
+## Build
+
+```
+gradlew.bat portableZip
+```
+
+Produces `build\distributions\TraktorProxy-1.0.3.zip`, about 23 MB of jars. No installer, no
+administrator rights, nothing written outside the folder you unzip it into.
+
+`gradlew.bat portableDir` stages the same folder in `build\staged\TraktorProxy` to run from. It has
+no `portable.txt`, so its data goes to `%LOCALAPPDATA%\TraktorProxy` and a rebuild has nothing of
+yours to delete — staging refuses outright if it finds settings or a library there.
 
 ## Credits
 
