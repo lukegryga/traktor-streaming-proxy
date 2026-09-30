@@ -6,7 +6,7 @@ import java.util.Properties
 data class LibraryEntry(val trackId: String, val file: File, val playedAt: Long)
 
 /**
- * Transcoded tracks kept on disk so a second load costs no Spotify streaming at all.
+ * Downloaded tracks kept on disk so a second load costs no streaming at all.
  *
  * mp4 rather than the source Ogg Vorbis because Traktor's streaming path refuses Vorbis outright
  * (verified: a valid 44.1kHz stereo .ogg is rejected as unplayable), so the converted file is the
@@ -45,6 +45,7 @@ object Library {
             }
             println("Library index holds ${names.size} tracks")
         }.onFailure { println("Could not read ${indexFile.name}: ${it.message}") }
+        migrateUnprefixedKeys()
         adoptOrphans()
     }
 
@@ -59,12 +60,47 @@ object Library {
             ?: return
 
         orphans.forEach { file ->
-            val id = file.nameWithoutExtension
+            // Prefixed because the name is not a track id: nothing can ever look this entry up, it
+            // exists so the file counts against the size limit and can be evicted like any other.
+            val id = "orphan:${file.name}"
             synchronized(names) { names[id] = file.name }
             synchronized(played) { played[id] = file.lastModified() }
             println("Adopted untracked library file ${file.name}")
         }
         if (orphans.isNotEmpty()) flush()
+    }
+
+    /**
+     * Keys gained a "<source>:" prefix once sources other than Spotify started storing tracks.
+     * Everything written before that came from Spotify, and renaming the entries is what keeps an
+     * existing library from downloading every track it already holds a second time.
+     */
+    private fun migrateUnprefixedKeys() {
+        val stale = synchronized(names) { names.keys.filterNot { it.contains(':') } }
+        if (stale.isEmpty()) return
+        synchronized(names) { stale.forEach { id -> names.remove(id)?.let { names["spotify:$id"] = it } } }
+        synchronized(played) { stale.forEach { id -> played.remove(id)?.let { played["spotify:$id"] = it } } }
+        println("Renamed ${stale.size} library entries to the source-prefixed form")
+        flush()
+    }
+
+    /**
+     * Keeps [bytes] and hands them straight back. A source that cannot write to the library still
+     * loads the track: being unable to cache it is not a reason to fail the deck.
+     */
+    fun store(trackId: String, title: String?, artist: String?, bytes: ByteArray): ByteArray {
+        val target = prepare(trackId, title, artist)
+        runCatching {
+            target.writeBytes(bytes)
+            register(trackId, target.name)
+            enforceLimit()
+            val (count, total) = stats()
+            println("Stored ${target.name}; library holds $count tracks, ${total / 1024 / 1024} MB")
+        }.onFailure {
+            target.delete()
+            println("Could not keep $trackId in the library: ${it.message}")
+        }
+        return bytes
     }
 
     /**
@@ -85,7 +121,7 @@ object Library {
         }
 
         // Tracks stored before files were named adopt their old id-based name rather than download again.
-        val legacy = File(root(), "$trackId.mp4")
+        val legacy = File(root(), "${trackId.substringAfter(':')}.mp4")
         if (legacy.isFile && legacy.length() > 0) {
             register(trackId, legacy.name)
             return legacy
@@ -207,7 +243,7 @@ object Library {
 
         // Two tracks can legitimately share a title and artist, and one must not overwrite the other.
         val taken = synchronized(names) { names.any { (key, value) -> key != trackId && value == "$safe.mp4" } }
-        return if (taken) "$safe [${trackId.take(6)}].mp4" else "$safe.mp4"
+        return if (taken) "$safe [${trackId.substringAfter(':').take(6)}].mp4" else "$safe.mp4"
     }
 
     private fun sanitise(value: String): String = value
@@ -228,7 +264,7 @@ object Library {
                 }
             }
             indexFile.parentFile?.mkdirs()
-            indexFile.outputStream().use { props.store(it, "spotify track id -> last played millis and library file name") }
+            indexFile.outputStream().use { props.store(it, "source:track id -> last played millis and library file name") }
         }.onFailure { println("Could not write ${indexFile.name}: ${it.message}") }
     }
 }

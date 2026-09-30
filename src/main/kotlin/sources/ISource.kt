@@ -48,4 +48,11 @@ interface ISource {
      * Download music track data (must be in mp4 format)
      */
     fun download(id: String): ByteArray
+
+    /**
+     * Key this track is filed under in the shared library. Prefixed by source because ids are only
+     * unique within one of them, and an unprefixed key would eventually serve one source's audio
+     * for another source's track.
+     */
+    fun libraryKey(id: String): String = "${name.lowercase()}:$id"
 }

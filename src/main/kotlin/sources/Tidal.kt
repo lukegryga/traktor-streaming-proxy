@@ -1,6 +1,7 @@
 package sources
 
 import Config.prop
+import app.Library
 import beatport.api.Artist
 import beatport.api.Playlist
 import beatport.api.Track
@@ -106,6 +107,11 @@ class Tidal : ISource {
     }
 
     override fun download(id: String): ByteArray {
+        Library.cached(libraryKey(id))?.let {
+            println("Serving $id from the library")
+            return it.readBytes()
+        }
+
         val manifest = api.getStreamManifest(id.toLong())
         val factory = SAXParserFactory.newInstance()
         val parser = factory.newSAXParser()
@@ -145,7 +151,9 @@ class Tidal : ISource {
             con = URL(url).openConnection()
             out.write(con.getInputStream().readBytes())
         }
-        return out.toByteArray()
+        // Nothing here knows the title, so the library names the file after the id. Traktor reads
+        // the name from its own collection either way; only the folder is less browsable.
+        return Library.store(libraryKey(id), null, null, out.toByteArray())
     }
 
     private fun readConfig(): Boolean {

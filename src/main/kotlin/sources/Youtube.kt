@@ -1,5 +1,6 @@
 package sources
 
+import app.Library
 import beatport.api.*
 import org.schabi.newpipe.extractor.*
 import org.schabi.newpipe.extractor.downloader.Request
@@ -69,8 +70,30 @@ class Youtube : ISource {
         return extractItems(itemsPage.items).take(SEARCH_RESULTS)
     }
 
+    /**
+     * Kept in the library like every other source. The m4a YouTube serves is already an mp4
+     * container, so unlike Spotify's Ogg there is nothing to convert and no ffmpeg involved.
+     */
     override fun download(id: String): ByteArray {
-        return downloadTrack(getAudioStream(id))
+        Library.cached(libraryKey(id))?.let {
+            println("Serving $id from the library")
+            return it.readBytes()
+        }
+
+        // The page is fetched once for both the stream url and the title, so the library file is
+        // named after the video rather than after its id.
+        val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$id")
+        extractor.fetchPage()
+        val stream = extractor.audioStreams
+            .filter { it.format!!.name == "m4a" }
+            .maxBy { it.averageBitrate }
+
+        return Library.store(
+            libraryKey(id),
+            extractor.name,
+            runCatching { extractor.uploaderName }.getOrNull(),
+            downloadTrack(stream.content)
+        )
     }
 
     private fun downloadTrack(path: String): ByteArray {
@@ -93,12 +116,6 @@ class Youtube : ISource {
             }
         }
         return results
-    }
-
-    private fun getAudioStream(url: String): String {
-        val extractor = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$url")
-        extractor.fetchPage()
-        return extractor.audioStreams.filter { it.format!!.name == "m4a" }.maxBy { it.averageBitrate }.content
     }
 
     class Downloader : org.schabi.newpipe.extractor.downloader.Downloader() {

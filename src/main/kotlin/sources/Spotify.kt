@@ -165,7 +165,7 @@ class Spotify : ISource {
     }
 
     override fun download(id: String): ByteArray {
-        Library.cached(id)?.let {
+        Library.cached(libraryKey(id))?.let {
             println("Serving $id from the library")
             return it.readBytes()
         }
@@ -193,7 +193,7 @@ class Spotify : ISource {
         val artist = track?.get("artists")?.jsonArray
             ?.firstOrNull()?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
 
-        val target = Library.prepare(id, title, artist)
+        val target = Library.prepare(libraryKey(id), title, artist)
         val ogg = File.createTempFile("track-", ".ogg")
         val cover = track?.let { coverArt(it) }
 
@@ -204,7 +204,7 @@ class Spotify : ISource {
             transcode(ogg, cover, track, target)
             val done = System.currentTimeMillis()
 
-            Library.register(id, target.name)
+            Library.register(libraryKey(id), target.name)
             Library.enforceLimit()
             val (count, bytes) = Library.stats()
             println(

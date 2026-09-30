@@ -197,7 +197,13 @@ fun main(args: Array<String>) {
                 isLenient = true
             })
         }
-        var data = ByteArray(0)
+        // One shared buffer served whatever had finished downloading last, so loading a second
+        // deck while the first was still fetching handed Traktor the wrong track, or an empty
+        // body on the very first load. The url names the track instead, and the last few loads are
+        // kept so every deck can still read its own.
+        val loaded = Collections.synchronizedMap(object : LinkedHashMap<Long, ByteArray>() {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ByteArray>) = size > 4
+        })
         routing {
 
             get("/v4/auth/o/authorize/") {
@@ -328,22 +334,42 @@ fun main(args: Array<String>) {
                     println("Unknown track $traktorId; browse its playlist again to re-index it")
                     return@get call.respond(HttpStatusCode.NotFound)
                 }
-                data = sources[indexed.source].download(Utils.decode(traktorId) + indexed.remainder)
-                call.respond(Download("https://api.beatport.com/output.mp4", "foo", 1337))
+                loaded[traktorId] = sources[indexed.source].download(Utils.decode(traktorId) + indexed.remainder)
+                call.respond(Download("https://api.beatport.com/output/$traktorId.mp4", "foo", 1337))
             }
 
-            // Serve the last downloaded track
-            head("/output.mp4") {
-                call.response.header("content-type", "video/mp4")
-                call.respondBytes(data)
+            // Traktor reports what it played and polls for its streaming link. Nothing here needs
+            // either, but answering 404 left an error in the log in the middle of every load.
+            post("/v4/events/play/") {
+                call.respond(HttpStatusCode.OK)
             }
 
-            get("/output.mp4") {
-                call.response.header("content-type", "video/mp4")
-                call.respondBytes(data)
+            // The id is a whole path segment rather than a suffix so the extension is only there
+            // for Traktor's benefit; the download route is what decides the url.
+            head("/output/{id}") {
+                call.respondTrack(loaded)
+            }
+
+            get("/output/{id}") {
+                call.respondTrack(loaded)
             }
         }
     }).start(wait = true)
+}
+
+/**
+ * Serves the bytes a download call put aside for this track. A miss is answered with 404 rather
+ * than with whatever else is in memory: playing the wrong track is worse than a failed load.
+ */
+private suspend fun ApplicationCall.respondTrack(loaded: Map<Long, ByteArray>) {
+    val traktorId = parameters["id"]?.removeSuffix(".mp4")?.toLongOrNull()
+    val bytes = traktorId?.let { loaded[it] }
+    if (bytes == null) {
+        println("No pending download for ${parameters["id"]}; Traktor has to ask for it again")
+        return respond(HttpStatusCode.NotFound)
+    }
+    response.header("content-type", "video/mp4")
+    respondBytes(bytes)
 }
 
 private fun List<TrackResponse>.toNewSearchApi(): List<BeatportTrack> {
